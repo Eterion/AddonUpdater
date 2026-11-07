@@ -1,106 +1,103 @@
 # Addon Updater
 
-A terminal-based WoW Forever addon updater for **Windows PowerShell 5.1**, included with Windows 10/11. It does not require Node.js, PowerShell 7, a browser, npm, or an installed PowerShell module.
+Check and update your WoW Forever addons from a simple keyboard menu. Runs on Windows 10/11 using the included Windows PowerShell 5.1.
 
-## Start
+## Get started
 
-Double-click **Addon Updater.cmd**. It opens Windows PowerShell 5.1 and runs `AddonUpdater.ps1`. The CMD file is only a convenience launcher, since double-clicking a `.ps1` normally opens an editor. You can also right-click `AddonUpdater.ps1` and select **Run with PowerShell**.
+1. Extract the updater into its own folder and keep all its files together.
+2. Double-click **Addon Updater.cmd**.
+3. Choose your WoW installation. If it isn't listed, choose **Enter a custom path**.
+4. Available updates start checked. Use **Up/Down** to move and **Space** to uncheck any you want to skip.
+5. Close WoW, press **Enter**, and let the updates finish. Progress appears in the terminal.
 
-Keep the scripts, `config.json`, and `lib` folder together in a writable folder. The updater can live anywhere; it does not belong inside WoW's `Interface\AddOns` folder.
+Press **Q** or **Esc** to exit a menu. Let an installation finish before closing the window.
 
-## Choose your client
+Your WoW folder is remembered for next time. The updater can live anywhere you can write files, outside the game's AddOns folder.
 
-The first menu lists detected Forever installations and **Enter a custom path**. Use Up/Down and Enter. Custom paths can point at World of Warcraft, `_forever_`, or `_forever_\Interface\AddOns`. The updater verifies the Forever client contains `Wow.exe` and rejects filesystem links.
+## Which addons work?
 
-Your choice is remembered in `settings.local.json`, excluded from Git. Detection checks common installation locations on drives C through F. Custom paths support other drives and locations. Press **C** in the addon list to choose another client.
+Supports Spoken, Spoken audio, Dialogue UI, and other addons with a compatible GitHub release. A CurseForge download alone may not provide enough information to find updates.
 
-## Choose updates
+If an addon needs a source, highlight it and press **S** to choose from the repositories found in its files. If a suitable release can't be verified, the list shows the reason.
 
-All available updates start checked. The interface supports:
+The first Spoken audio check may take a minute or two. Later checks are faster, and only changed or missing audio files are downloaded.
+
+## More controls
 
 | Key | Action |
 | --- | --- |
-| Up / Down | Move through addons; long lists scroll |
-| Space | Check or uncheck the highlighted update |
-| A / N | Select all / select none |
-| Enter | Install the checked updates |
-| S | Choose the highlighted addon's GitHub source |
-| R | Check for updates again |
-| C | Choose another client |
-| Q / Esc | Exit |
+| Up / Down | Move through the list |
+| Space | Check or uncheck an update |
+| Enter | Install checked updates |
+| A / N | Select all / none |
+| S | Choose an addon's source |
+| R | Check again |
+| C | Choose another WoW installation |
 | Home / End | Jump to the first / last addon |
+| Q / Esc | Exit |
 
-Only a custom installation path needs typed text. The normal selection flow uses keys, not entered numbers. Errors stay visible in the terminal.
+For a custom path, select your `World of Warcraft`, `_forever_`, or `_forever_\Interface\AddOns` folder.
 
-## Progress and safeguards
+## Updating the updater
 
-The terminal shows overall addon completion and the current operation: bytes downloaded, files checked/unpacked/prepared, verification, backup, and installation. Unknown totals use an indeterminate progress display.
+Downloaded release copies check for a newer Addon Updater version at startup. Choose **Update Addon Updater and restart** or **Skip for now**. Your saved settings are kept.
 
-Close WoW before installing. Downloads are verified and staged before existing folders are replaced. Old folders are kept in `<Forever client>\Interface\ForeverAddonUpdater-Backups\<update-id>`, including a `restore.json` record. A normal folder-swap error restores the addon being installed; previously completed updates remain installed. Failed staging is retained for recovery. Your `WTF` folder is never changed.
+Copies inside a Git checkout are updated through Git instead.
 
-Let the script finish once installation starts. Closing the terminal or killing PowerShell during a folder swap can interrupt rollback. To restore manually, close WoW and the updater, move the affected current addon folders aside, and move the matching backup folders into AddOns. Restore all folders from one update together. If power loss interrupts installation, inspect `restore.json` and retained staging before updating again.
+## Backups and recovery
 
-Cache and staging live beside AddOns in `Interface\ForeverAddonUpdater-Data`. Backups are retained until you remove them. A stale `running.lock` may be removed only after all updater sessions have closed.
+Downloads are checked before installation. Replaced addons are backed up in:
 
-## Sources
+```text
+<Forever client>\Interface\ForeverAddonUpdater-Backups\<update-id>
+```
 
-- Explicit GitHub links in Forever-compatible TOC fields are detected automatically. Recognized fields include `X-Website`, `Website`, `X-Source`, `Source`, `X-GitHub` and `X-GitHub-Repo`.
-- Top-level README links require a one-time choice with **S**. Bundled library folders are not searched. Ambiguous metadata also requires a choice. Selections are stored per client in Git-ignored `sources.local.json`.
-- CurseForge, WoWInterface and Wago project identifiers are displayed. IDs alone do not enable automatic downloads; the generic provider currently uses GitHub.
-- Generic GitHub updates use stable packaged ZIP releases. Compatibility must be established through release metadata (`release.json`/`.release.json`) or a matching TOC at the exact tag. Ambiguous packages, unknown version formats and unverifiable compatibility are withheld with a reason. Generic source-code snapshots are not installed.
-- Spoken and its installed bundled modules use the author's stable GitHub release ZIPs and published SHA-256 checksums.
-- Spoken audio uses the author's signed catalog. Ed25519 signatures, manifest digests and file SHA-256 checksums are verified. Only changed or missing audio files are downloaded; matching existing files are reused.
-- Dialogue UI uses compatible versioned tags from its author's repository. It retains its dedicated tagged-snapshot adapter.
+If installation fails, the updater restores the addon it was replacing. Updates that already finished stay installed. Your game settings in `WTF` are preserved.
 
-ZIP paths, sizes and CRCs are checked. Packaged TOCs, version, required dependencies and bundle membership are validated before replacement. Installed folders mapped to the same generic release update together; an unmapped installed bundle member blocks the update. New optional modules are not installed automatically. Older releases never replace newer installed versions.
+To restore an addon manually, close WoW and the updater, move the affected current addon folders aside, then move their backup folders into AddOns. Restore all folders from the same update together. Each backup includes a `restore.json` record.
 
-`config.json` contains the target Forever interface version, currently `16001`; it has no personal path. Update this value when supporting a different Forever client interface.
+Updater program backups are stored in `.self-update\backups` beside the scripts. If a power loss or interrupted rollback leaves the updater incomplete, restore its program files from the recorded backup before running it again. Failed staging is retained for recovery. Backups remain until you remove them.
 
-## Updating Addon Updater
+## Technical details
 
-Packaged copies check for a newer stable release from `Eterion/AddonUpdater` on startup. Choose **Update Addon Updater and restart**, **Skip for now**, or **Q / Esc** to exit. If no release exists yet, startup continues normally. Network errors are displayed and leave the current updater usable. Demo mode and read-only addon checks do not check for updater releases. Use `-SkipSelfUpdate` to bypass the check for one run.
+- Addon sources come from compatible TOC metadata or top-level README links. Ambiguous sources require a choice. CurseForge, WoWInterface and Wago IDs alone don't enable automatic downloads.
+- Generic GitHub updates require a stable packaged ZIP and verifiable interface compatibility. Spoken uses release ZIPs and checksums; its audio uses signed manifests and file hashes. Dialogue UI uses compatible versioned tags.
+- Archive paths, checksums, addon versions, dependencies and bundle membership are checked before replacement. Unverifiable packages are withheld; older versions don't replace newer ones.
+- Self-updates use stable releases from `Eterion/AddonUpdater`, with GitHub's SHA-256 digest and a package file manifest. This trusts the repository and HTTPS rather than an independent publisher signature.
+- `config.json` sets the target interface version, currently `16001`. Personal choices are saved in Git-ignored `settings.local.json` and `sources.local.json`.
+- Addon cache and staging use `Interface\ForeverAddonUpdater-Data`. A stale `running.lock` there may be removed after all updater sessions have closed.
+- The bundled signature-verification library and its license are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-The updater accepts only the official `AddonUpdater.zip` release asset and verifies its size and GitHub-provided SHA-256 digest before extraction. Its file manifest is checked before replacement. This trusts the GitHub repository and HTTPS; it is not a separately signed publisher release.
-
-Personal `settings.local.json`, `sources.local.json` and caches are preserved. Replaced program files are retained under `.self-update\backups`, with `restore.json`; a normal replacement failure rolls back the update. Failed staging is retained. If rollback itself fails, the updater stops and reports the backup and staging locations. After a power loss, restore the program files listed in `restore.json` from that backup before running again. Do not close the terminal while files are being replaced.
-
-Self-updating is disabled when the updater is inside a Git checkout, including nested folders and Git worktrees. Update development copies with Git. Only one interactive session can run from the same updater folder at a time; its file lock is automatically released on exit.
-
-## Verification library
-
-The bundled, unmodified Bouncy Castle .NET Framework DLL provides Ed25519 verification missing from PowerShell 5.1's built-in framework APIs. It is included in `lib`; users do not install anything. Its published SHA-256 is checked before loading. License and provenance are in `THIRD_PARTY_NOTICES.md` and `lib\BouncyCastle.LICENSE.txt`.
-
-## Command-line and testing
-
-Read-only checks use the remembered client, or an explicit path:
+## Command-line options
 
 ```powershell
+# Check without installing
 .\AddonUpdater.ps1 -CheckOnly
 .\AddonUpdater.ps1 -CheckOnly -AddonsPath 'D:\Games\World of Warcraft'
+
+# Preview the menu with sample data
+.\AddonUpdater.ps1 -Demo
+
+# Skip the updater's own version check for this run
+.\AddonUpdater.ps1 -SkipSelfUpdate
 ```
 
-Check-only mode writes its cache into the Git-ignored `.check-data` directory beside the scripts and cannot install. The first audio check hashes existing files and may take a minute or two. Later checks reuse hashes when file size and timestamps match.
+Read-only checks cache results in `.check-data` beside the scripts. The launcher sets execution policy for its own process only.
 
-Preview the keyboard interface without network or game access:
+## Development and releases
+
+Run the offline tests:
 
 ```powershell
-.\AddonUpdater.ps1 -Demo
-```
-
-Run the self-contained offline regression suite, with no Pester installation:
-
-```bat
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Run-Tests.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Run-SelfUpdateTests.ps1
 ```
 
-The launcher applies execution policy only to its own PowerShell process; it does not change machine settings. No background service, scheduled task or browser server is installed. Public sources can fail or rate-limit requests; those failures are shown rather than reported as up-to-date.
+To publish a release:
 
-## Preparing a GitHub release
+1. Set the version in `version.json`, such as `1.0.0`, and commit the release files.
+2. Run both test suites, then `scripts\Build-Release.ps1` using Windows PowerShell 5.1.
+3. Create a stable GitHub release from that commit with a matching tag, such as `v1.0.0`. Attach `dist\AddonUpdater.zip` with that exact filename.
+4. Verify self-updating from an older packaged copy outside a Git checkout.
 
-1. Set the three-part version in `version.json` and commit the intended release files.
-2. Run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Build-Release.ps1` and both test scripts above. The self-update suite also rebuilds the package.
-3. Create a GitHub release tagged `v<version>`, for example `v1.0.0`, from that commit. Attach **`dist\AddonUpdater.zip`** with that exact asset name and publish it as a stable release. The package contains only program files, documentation and bundled libraries. Local settings, caches, Git metadata and development scripts are excluded.
-4. For end-to-end live verification, run a previously released packaged copy outside a Git checkout and accept its update offer. GitHub supplies the asset digest after upload; packages without that digest are withheld.
-
-Pushing commits alone does not distribute an update. Publishing the first release makes it available to download; self-updates become available when a later stable version is published.
+The package excludes personal settings, caches and development files. Self-updates are distributed through published releases; pushing code alone doesn't distribute an update.
