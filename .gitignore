@@ -1,0 +1,12 @@
+.check-data/
+.test-tmp-*/
+settings.local.json
+sources.local.json
+last-error.txt
+*.tmp
+*.part
+*.zip
+.self-update/
+.updater.lock
+dist/
+.release-build/
