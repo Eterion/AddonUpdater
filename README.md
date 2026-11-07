@@ -42,7 +42,7 @@ For a custom path, select your `World of Warcraft`, `_forever_`, or `_forever_\I
 
 Downloaded release copies check for a newer Addon Updater version at startup. Choose **Update Addon Updater and restart** or **Skip for now**. Your saved settings are kept.
 
-Copies inside a Git checkout are updated through Git instead.
+Update copies inside a Git checkout through Git.
 
 ## Backups and recovery
 
@@ -63,7 +63,7 @@ Updater program backups are stored in `.self-update\backups` beside the scripts.
 - Addon sources come from compatible TOC metadata or top-level README links. Ambiguous sources require a choice. CurseForge, WoWInterface and Wago IDs alone don't enable automatic downloads.
 - Generic GitHub updates require a stable packaged ZIP and verifiable interface compatibility. Spoken uses release ZIPs and checksums; its audio uses signed manifests and file hashes. Dialogue UI uses compatible versioned tags.
 - Archive paths, checksums, addon versions, dependencies and bundle membership are checked before replacement. Unverifiable packages are withheld; older versions don't replace newer ones.
-- Self-updates use stable releases from `Eterion/AddonUpdater`, with GitHub's SHA-256 digest and a package file manifest. This trusts the repository and HTTPS rather than an independent publisher signature.
+- Self-updates use stable releases from `Eterion/AddonUpdater`, with GitHub's SHA-256 digest and a package file manifest. Verification trusts the GitHub repository and HTTPS.
 - `config.json` sets the target interface version, currently `16001`. Personal choices are saved in Git-ignored `settings.local.json` and `sources.local.json`.
 - Addon cache and staging use `Interface\ForeverAddonUpdater-Data`. A stale `running.lock` there may be removed after all updater sessions have closed.
 - The bundled signature-verification library and its license are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
@@ -100,4 +100,4 @@ To publish a release:
 3. Create a stable GitHub release from that commit with a matching tag, such as `v1.0.0`. Attach `dist\AddonUpdater.zip` with that exact filename.
 4. Verify self-updating from an older packaged copy outside a Git checkout.
 
-The package excludes personal settings, caches and development files. Self-updates are distributed through published releases; pushing code alone doesn't distribute an update.
+The package excludes personal settings, caches and development files. Published stable releases are distributed as self-updates.

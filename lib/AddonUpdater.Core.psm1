@@ -1,4 +1,4 @@
-# Windows PowerShell 5.1. No downloaded PowerShell modules or external runtimes.
+# Addon discovery, download verification and installation for Windows PowerShell 5.1.
 $ErrorActionPreference = 'Stop'
 $script:HomeFolder = Split-Path $PSScriptRoot -Parent
 $script:Interface = 16001

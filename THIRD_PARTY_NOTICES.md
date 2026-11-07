@@ -1,4 +1,6 @@
-# Bouncy Castle C# .NET
+# Third-party notices
+
+## Bouncy Castle C# .NET
 
 Bundled file: `lib/BouncyCastle.Cryptography.dll`
 
@@ -10,4 +12,4 @@ Bundled file: `lib/BouncyCastle.Cryptography.dll`
 - Official project: https://www.bouncycastle.org/download/bouncy-castle-c/
 - MIT-style license: `lib/BouncyCastle.LICENSE.txt`.
 
-The DLL is unmodified and supplies Ed25519 signature verification. There are no bundled web fonts, browser assets, JavaScript runtimes, or npm dependencies in this terminal version.
+The unmodified library provides Ed25519 signature verification for Spoken audio catalogs and manifests.
