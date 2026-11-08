@@ -61,6 +61,14 @@ try{
         Write-File $path 'longer';Assert (-not(Test-FileMatch $path $file (Get-SafeFileIndex $audio)))
         Remove-Item -LiteralPath $path;Assert (-not(Test-FileMatch $path $file (Get-SafeFileIndex $audio)))
     }
+    Test 'file hashing works when the Get-FileHash command is unavailable' {
+        $path=Join-Path $temp 'hash-input';Write-File $path 'abc'
+        & $core {
+            param($fixture)
+            function Get-FileHash {throw 'Hash cmdlet unavailable in this test'}
+            if((Get-Hash $fixture) -ne 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'){throw 'Unexpected SHA-256 digest.'}
+        } $path
+    }
     Test 'directory indexing rejects junctions before following them' {
         $target=Join-Path $temp 'LinkTarget';$tree=Join-Path $temp 'LinkTree';[IO.Directory]::CreateDirectory($target) | Out-Null;[IO.Directory]::CreateDirectory($tree) | Out-Null
         $link=Join-Path $tree 'Linked';New-Item -ItemType Junction -Path $link -Target $target | Out-Null

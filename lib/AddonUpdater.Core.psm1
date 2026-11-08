@@ -109,7 +109,10 @@ function Initialize-UpdateContext([string]$AddonsPath,[switch]$CheckOnly,[string
 function Close-UpdateContext {
     if($script:Lock){$script:Lock.Dispose();$script:Lock=$null;if(Test-Path -LiteralPath $script:LockPath){Remove-Item -LiteralPath $script:LockPath -Force}}
 }
-function Get-Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
+function Get-Hash([string]$Path){
+    $stream=[IO.File]::OpenRead($Path);$hash=[Security.Cryptography.SHA256]::Create()
+    try{return ([BitConverter]::ToString($hash.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose();$stream.Dispose()}
+}
 function Get-TextHash([string]$Text){$hash=[Security.Cryptography.SHA256]::Create();try{return ([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text)))).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose()}}
 function Test-FileMatch([string]$Path,$File,[System.Collections.IDictionary]$FileIndex) {
     if($null -ne $FileIndex){$s=$FileIndex[[IO.Path]::GetFullPath($Path).ToLowerInvariant()];if(-not $s){return $false}}
