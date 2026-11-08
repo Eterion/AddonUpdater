@@ -12,7 +12,9 @@ Check and update your WoW Forever addons from a simple keyboard menu. Runs on Wi
 
 Press **Q** or **Esc** to exit a menu. Let an installation finish before closing the window.
 
-Your WoW folder is remembered for next time. The updater can live anywhere you can write files, outside the game's AddOns folder.
+Your WoW folder is remembered: future launches go straight to checking its addons. Press **C** to choose another game folder. If the saved folder is unavailable, the folder picker appears automatically.
+
+The updater can live anywhere you can write files, outside the game's AddOns folder.
 
 ## Which addons work?
 
@@ -20,7 +22,7 @@ Supports Spoken, Spoken audio, Dialogue UI, and other addons with a compatible G
 
 If an addon needs a source, highlight it and press **S** to choose from the repositories found in its files. If a suitable release can't be verified, the list shows the reason.
 
-The first Spoken audio check may take a minute or two. Later checks are faster, and only changed or missing audio files are downloaded.
+Every launch checks online for updates. The first Spoken audio check may take a minute or two; later checks reuse verified hashes for unchanged files. Only changed or missing audio files are downloaded.
 
 ## More controls
 
@@ -32,7 +34,7 @@ The first Spoken audio check may take a minute or two. Later checks are faster, 
 | A / N | Select all / none |
 | S | Choose an addon's source |
 | R | Check again |
-| C | Choose another WoW installation |
+| C | Change game folder |
 | Home / End | Jump to the first / last addon |
 | Q / Esc | Exit |
 
@@ -90,13 +92,14 @@ Run the offline tests:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Run-Tests.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Run-StartupTests.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Run-SelfUpdateTests.ps1
 ```
 
 To publish a release:
 
 1. Set the version in `version.json`, such as `1.0.0`, and commit the release files.
-2. Run both test suites, then `scripts\Build-Release.ps1` using Windows PowerShell 5.1.
+2. Run the test suites above, then `scripts\Build-Release.ps1` using Windows PowerShell 5.1.
 3. Create a stable GitHub release from that commit with a matching tag, such as `v1.0.0`. Attach `dist\AddonUpdater.zip` with that exact filename.
 4. Verify self-updating from an older packaged copy outside a Git checkout.
 

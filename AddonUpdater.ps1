@@ -49,14 +49,17 @@ try {
     $settingsFile=Join-Path $PSScriptRoot 'settings.local.json';$settings=@{};try{$settings=Read-JsonFile $settingsFile}catch{}
     $candidate=$AddonsPath;if(-not $candidate){$candidate=$settings.addonsPath}
     if($CheckOnly -and -not $candidate){throw 'No saved client. Run interactively to choose a client, or pass -AddonsPath <folder>.'}
+    $chooseClient=$false
+    if(-not $CheckOnly){$remembered=Get-RememberedWowInstallation $candidate;if($remembered){$candidate=$remembered}else{$chooseClient=$true}}
     :Clients while($true){
-        if(-not $CheckOnly){
+        if(-not $CheckOnly -and $chooseClient){
             $clients=@(Find-WowInstallations @($candidate));$options=@($clients)+@('Enter a custom path')
             $choice=Select-TerminalOption 'Choose your WoW Forever installation' $options;if($choice -lt 0){return}
             if($choice -eq $clients.Count){$candidate=Read-Host 'Paste the World of Warcraft, _forever_, or AddOns folder';if(-not $candidate){continue}}else{$candidate=$clients[$choice]}
         }
         try{
             $resolved=Resolve-WowInstallation $candidate
+            $chooseClient=$false
             if(-not $CheckOnly){Save-JsonFile $settingsFile @{addonsPath=$resolved}}
             Initialize-UpdateContext $resolved -CheckOnly:$CheckOnly -StateDirectory $StateDirectory
             :Addons while($true){
@@ -67,7 +70,7 @@ try {
                     $selection=Select-AddonUpdates $plans $resolved
                     switch($selection.action){
                         'Exit'{return}
-                        'Client'{continue Clients}
+                        'Client'{$chooseClient=$true;continue Clients}
                         'Recheck'{continue Addons}
                         'Source'{
                             $p=$plans[$selection.cursor]
@@ -85,7 +88,7 @@ try {
                 }
             }
         }catch{
-            if($CheckOnly){throw};Write-Host "`n$($_.Exception.Message)" -ForegroundColor Red;if($NoPause){throw};[void](Read-Host 'Press Enter to choose another client');$candidate=$null
+            if($CheckOnly){throw};Write-Host "`n$($_.Exception.Message)" -ForegroundColor Red;if($NoPause){throw};[void](Read-Host 'Press Enter to choose another client');$candidate=$null;$chooseClient=$true
         }finally{Close-UpdateContext;Write-Progress -Id 1 -Activity 'Total progress' -Completed;Write-Progress -Id 2 -Activity 'Addon operation' -Completed}
     }
 }catch{

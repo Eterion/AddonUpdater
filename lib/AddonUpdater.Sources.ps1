@@ -74,14 +74,15 @@ function Get-AudioPlans([string[]]$Installed) {
     foreach($folder in $Installed | Where-Object{$index.packs.ContainsKey($_)}){
         $p=New-AddonPlan $folder @($folder) 'audio';$p.source='packs.spoken.quest';$p.origin='Signed audio catalog'
         try{
-            if($folder -notmatch '^Spoken[A-Za-z]+(?:_[a-z]{2}[A-Z]{2})?$'){throw 'Invalid audio pack name.'};Assert-NoLinks (Join-Path $script:Root $folder) -Recursive
+            if($folder -notmatch '^Spoken[A-Za-z]+(?:_[a-z]{2}[A-Z]{2})?$'){throw 'Invalid audio pack name.'}
+            $fileIndex=Get-SafeFileIndex (Join-Path $script:Root $folder)
             $entry=$index.packs[$folder];if($entry.rev -notmatch '^\d{8}T\d{6}Z$' -or $entry.manifestSha256 -notmatch '^[a-f0-9]{64}$'){throw 'Invalid audio catalog revision.'}
-            Write-Host "Checking $folder (first check hashes existing audio)..." -ForegroundColor DarkGray
+            Write-Host "Checking $folder..." -ForegroundColor Gray
             $envelope=Open-SignedEnvelope (Get-RemoteJson ($script:PacksBase+"packs/$folder/$($entry.rev).json"));$m=Test-AudioManifest $envelope $folder $entry
             $toc=$m.files | Where-Object{$_.path -eq "$folder.toc"} | Select-Object -First 1;$remote=Get-TocMetadata ([IO.File]::ReadAllText((Get-AudioBlob $toc)))
             if(-not(Test-Compatible $remote)){throw 'Audio pack does not support this Forever interface.'};$p.installed=(Get-LocalMetadata $folder).Version;$p.latest=$remote.Version;$p.manifest=$m;$p.required=$m.requires.Spoken.Substring(2)
             $changed=New-Object 'System.Collections.Generic.List[object]';$newer=(Compare-AddonVersion $p.installed $p.latest) -gt 0
-            if(-not $newer){$i=0;foreach($f in $m.files){if(-not(Test-FileMatch (Join-Path (Join-Path $script:Root $folder) $f.path) $f)){$changed.Add($f);$p.size+=[long]$f.size};$i++;if($i % 100 -eq 0){Show-ItemProgress "Checking $folder" $i @($m.files).Count 'files'}}}
+            if(-not $newer){$i=0;foreach($f in $m.files){if(-not(Test-FileMatch (Join-Path (Join-Path $script:Root $folder) $f.path) $f $fileIndex)){$changed.Add($f);$p.size+=[long]$f.size};$i++;if($i % 100 -eq 0){Show-ItemProgress "Checking $folder" $i @($m.files).Count 'files'}}}
             $p.changed=$changed.ToArray();$p.update=$changed.Count -gt 0;$p.status=if($newer){'Installed version is newer; no downgrade'}elseif($p.update){"$($changed.Count) changed/missing files"}else{'Up to date'}
         }catch{$p.update=$false;$p.status='CHECK FAILED: '+$_.Exception.Message};$plans.Add($p)
     };Write-Progress -Id 2 -Completed -Activity 'Audio check';return $plans.ToArray()

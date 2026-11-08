@@ -15,18 +15,16 @@ $script:ItemNumber = 0
 $script:ItemCount = 0
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.Web.Extensions
+$script:JsonReader=New-Object System.Web.Script.Serialization.JavaScriptSerializer
+$script:JsonReader.MaxJsonLength=64MB
+$script:JsonReader.RecursionLimit=100
 if (-not ('AddonUpdater.ArchiveTools' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'ArchiveTools.cs') }
 
-function ConvertTo-Map($Value) {
-    if ($null -eq $Value) { return $null }
-    if ($Value -is [System.Collections.IDictionary]) { $m=@{}; foreach($k in $Value.Keys){$m[$k]=ConvertTo-Map $Value[$k]}; return $m }
-    if ($Value -is [array]) { return ,@($Value | ForEach-Object { ConvertTo-Map $_ }) }
-    if ($Value -is [pscustomobject]) { $m=@{};foreach($p in $Value.PSObject.Properties){$m[$p.Name]=ConvertTo-Map $p.Value};return $m }
-    return $Value
-}
+function ConvertFrom-UpdaterJson([string]$Text){return ,$script:JsonReader.DeserializeObject($Text)}
 function Read-JsonFile([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return @{} }
-    return ConvertTo-Map (ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($Path)))
+    return ,(ConvertFrom-UpdaterJson ([IO.File]::ReadAllText($Path)))
 }
 function Save-JsonFile([string]$Path,$Value) {
     [IO.Directory]::CreateDirectory((Split-Path $Path -Parent)) | Out-Null
@@ -42,7 +40,19 @@ function Assert-NoLinks([string]$Path,[switch]$Recursive) {
     if(-not (Test-Path -LiteralPath $Path)){return}
     $item=Get-Item -LiteralPath $Path -Force
     if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw "Linked paths are not supported: $Path"}
-    if($Recursive -and $item.PSIsContainer){foreach($child in Get-ChildItem -LiteralPath $Path -Force){Assert-NoLinks $child.FullName -Recursive}}
+    if($Recursive -and $item.PSIsContainer){$null=Get-SafeFileIndex $Path}
+}
+function Get-SafeFileIndex([string]$Path){
+    $files=@{};$pending=New-Object 'System.Collections.Generic.Stack[System.IO.DirectoryInfo]';$pending.Push([IO.DirectoryInfo]::new($Path))
+    while($pending.Count){
+        $directory=$pending.Pop()
+        if($directory.Attributes -band [IO.FileAttributes]::ReparsePoint){throw "Linked paths are not supported: $($directory.FullName)"}
+        foreach($entry in $directory.EnumerateFileSystemInfos()){
+            if($entry.Attributes -band [IO.FileAttributes]::ReparsePoint){throw "Linked paths are not supported: $($entry.FullName)"}
+            if($entry -is [IO.DirectoryInfo]){$pending.Push($entry)}else{$files[$entry.FullName.ToLowerInvariant()]=$entry}
+        }
+    }
+    return $files
 }
 function Remove-WorkDirectory([string]$Path,[string]$Boundary) {
     $full=[IO.Path]::GetFullPath($Path);$base=[IO.Path]::GetFullPath($Boundary).TrimEnd('\')+'\'
@@ -82,6 +92,9 @@ function Find-WowInstallations([string[]]$Extra=@()) {
     foreach($d in @('C','D','E','F')){$bases+=@("${d}:\Games","${d}:\Program Files","${d}:\Program Files (x86)","${d}:\")}
     $seen=@{};foreach($base in $bases){if(-not $base){continue};foreach($candidate in @($base,([IO.Path]::Combine($base,'World of Warcraft')))){try{$p=Resolve-WowInstallation $candidate;$seen[$p]=$p}catch{}}};return @($seen.Values | Sort-Object)
 }
+function Get-RememberedWowInstallation([string]$Path){
+    if(-not $Path){return $null};try{return Resolve-WowInstallation $Path}catch{return $null}
+}
 function Initialize-UpdateContext([string]$AddonsPath,[switch]$CheckOnly,[string]$StateDirectory) {
     $script:Root=Resolve-WowInstallation $AddonsPath;$script:CheckOnly=[bool]$CheckOnly
     if($StateDirectory){$script:Data=[IO.Path]::GetFullPath($StateDirectory)}elseif($CheckOnly){$script:Data=Join-Path $script:HomeFolder '.check-data'}else{$script:Data=Join-Path (Split-Path $script:Root -Parent) 'ForeverAddonUpdater-Data'}
@@ -98,9 +111,10 @@ function Close-UpdateContext {
 }
 function Get-Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
 function Get-TextHash([string]$Text){$hash=[Security.Cryptography.SHA256]::Create();try{return ([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text)))).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose()}}
-function Test-FileMatch([string]$Path,$File) {
-    if(-not(Test-Path -LiteralPath $Path -PathType Leaf)){return $false};Assert-NoLinks $Path
-    $s=Get-Item -LiteralPath $Path;$key=$s.FullName.ToLowerInvariant();$cached=$script:HashState[$key]
+function Test-FileMatch([string]$Path,$File,[System.Collections.IDictionary]$FileIndex) {
+    if($null -ne $FileIndex){$s=$FileIndex[[IO.Path]::GetFullPath($Path).ToLowerInvariant()];if(-not $s){return $false}}
+    else{if(-not(Test-Path -LiteralPath $Path -PathType Leaf)){return $false};Assert-NoLinks $Path;$s=Get-Item -LiteralPath $Path}
+    $key=$s.FullName.ToLowerInvariant();$cached=$script:HashState[$key]
     if($s.Length -ne [long]$File.size){return $false}
     if($cached -and $cached.size -eq $s.Length -and $cached.modified -eq $s.LastWriteTimeUtc.Ticks.ToString() -and $cached.created -eq $s.CreationTimeUtc.Ticks.ToString() -and $cached.hash -eq $File.sha256){return $true}
     $digest=Get-Hash $Path;$script:HashState[$key]=@{size=$s.Length;modified=$s.LastWriteTimeUtc.Ticks.ToString();created=$s.CreationTimeUtc.Ticks.ToString();hash=$digest};return $digest -eq $File.sha256
@@ -118,7 +132,7 @@ function Get-HttpBytes([string]$Url,[long]$Limit=20MB) {
     try{$buffer=New-Object byte[] 65536;while(($n=$input.Read($buffer,0,$buffer.Length)) -gt 0){if($memory.Length+$n -gt $Limit){throw 'Response exceeded the allowed size.'};$memory.Write($buffer,0,$n)};return ,$memory.ToArray()}finally{$input.Dispose();$response.Dispose();$memory.Dispose()}
 }
 function Get-RemoteText([string]$Url){return [Text.Encoding]::UTF8.GetString((Get-HttpBytes $Url))}
-function Get-RemoteJson([string]$Url){if(-not $script:ApiCache.ContainsKey($Url)){$script:ApiCache[$Url]=ConvertTo-Map (ConvertFrom-Json -InputObject (Get-RemoteText $Url))};return $script:ApiCache[$Url]}
+function Get-RemoteJson([string]$Url){if(-not $script:ApiCache.ContainsKey($Url)){$script:ApiCache[$Url]=ConvertFrom-UpdaterJson (Get-RemoteText $Url)};return $script:ApiCache[$Url]}
 function Save-RemoteFile([string]$Url,[string]$Path,[long]$Size=0,[string]$Digest,[string]$Activity='Downloading') {
     if($Url -notmatch '^https://'){throw 'Only HTTPS downloads are supported.'}
     [IO.Directory]::CreateDirectory((Split-Path $Path -Parent)) | Out-Null
@@ -145,7 +159,7 @@ function Open-SignedEnvelope($Envelope,[string]$PublicKey=$script:PublicKey) {
     $verifier=New-Object Org.BouncyCastle.Crypto.Signers.Ed25519Signer;$verifier.Init($false,$key)
     $data=[Text.Encoding]::UTF8.GetBytes($Envelope.signed);$verifier.BlockUpdate($data,0,$data.Length)
     if(-not $verifier.VerifySignature([Convert]::FromBase64String($Envelope.sig))){throw 'Audio signature verification failed.'}
-    return @{text=$Envelope.signed;value=(ConvertTo-Map (ConvertFrom-Json -InputObject $Envelope.signed))}
+    return @{text=$Envelope.signed;value=(ConvertFrom-UpdaterJson $Envelope.signed)}
 }
 function Get-AudioBlob($File) {
     $p=Join-Path (Join-Path $script:Data 'blobs') $File.sha256

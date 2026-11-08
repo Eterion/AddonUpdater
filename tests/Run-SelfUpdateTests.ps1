@@ -1,10 +1,11 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 $ErrorActionPreference='Stop'
 $app=Split-Path $PSScriptRoot -Parent
 & (Join-Path $app 'scripts\Build-Release.ps1')
 Import-Module (Join-Path $app 'lib\AddonUpdater.Core.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $app 'lib\AddonUpdater.Terminal.psm1') -Force -DisableNameChecking
 $core=Get-Module AddonUpdater.Core
+$packageVersion=(Read-JsonFile (Join-Path $app 'version.json')).version
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('AddonUpdater-tests-'+[Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($temp) | Out-Null
 $script:Passed=0;$script:Failed=0
@@ -15,10 +16,10 @@ function Test([string]$Name,[scriptblock]$Action){try{& $Action;$script:Passed++
 function Fixture([string]$Name){$stage=Join-Path $temp $Name;Expand-SafeArchive (Join-Path $app 'dist\AddonUpdater.zip') $stage;return $stage}
 try{
     $zip=Join-Path $app 'dist\AddonUpdater.zip'
-    $release=@{tag_name='v1.0.0';draft=$false;prerelease=$false;assets=@(@{name='AddonUpdater.zip';state='uploaded';browser_download_url='https://github.com/Eterion/AddonUpdater/releases/download/v1.0.0/AddonUpdater.zip';size=(Get-Item $zip).Length;digest=('sha256:'+(Get-Hash $zip))})}
+    $release=@{tag_name=('v'+$packageVersion);draft=$false;prerelease=$false;assets=@(@{name='AddonUpdater.zip';state='uploaded';browser_download_url=('https://github.com/Eterion/AddonUpdater/releases/download/v'+$packageVersion+'/AddonUpdater.zip');size=(Get-Item $zip).Length;digest=('sha256:'+(Get-Hash $zip))})}
     Test 'official stable release selects a verified package and never downgrades' {
-        $plan=Get-SelfUpdatePlan $release '0.9.0';Equal $plan.version '1.0.0';Equal $plan.digest (Get-Hash $zip)
-        Assert ($null -eq (Get-SelfUpdatePlan $release '1.0.0'));Assert ($null -eq (Get-SelfUpdatePlan $release '2.0.0'))
+        $plan=Get-SelfUpdatePlan $release '0.9.0';Equal $plan.version $packageVersion;Equal $plan.digest (Get-Hash $zip)
+        Assert ($null -eq (Get-SelfUpdatePlan $release $packageVersion));Assert ($null -eq (Get-SelfUpdatePlan $release '2.0.0'))
         $release.prerelease=$true;Assert ($null -eq (Get-SelfUpdatePlan $release '0.9.0'));$release.prerelease=$false
         $release.draft=$true;Assert ($null -eq (Get-SelfUpdatePlan $release '0.9.0'));$release.draft=$false
     }
@@ -28,23 +29,23 @@ try{
         $release.assets=@($asset,$asset);Throws {Get-SelfUpdatePlan $release '0.9.0'};$release.assets=@($asset)
     }
     Test 'release ZIP validates and contains no personal settings or development files' {
-        $stage=Fixture 'valid';Assert-UpdaterPackage $stage '1.0.0'
+        $stage=Fixture 'valid';Assert-UpdaterPackage $stage $packageVersion
         foreach($name in @('settings.local.json','sources.local.json','.git','.check-data','tests','scripts')){Assert (-not(Test-Path -LiteralPath (Join-Path $stage $name)))}
     }
     Test 'tampering, extra files and wrong versions are rejected before replacement' {
-        $stage=Fixture 'tampered';[IO.File]::AppendAllText((Join-Path $stage 'README.md'),'tampered');Throws {Assert-UpdaterPackage $stage '1.0.0'}
-        $stage=Fixture 'extra';[IO.File]::WriteAllText((Join-Path $stage 'settings.local.json'),'{}');Throws {Assert-UpdaterPackage $stage '1.0.0'}
+        $stage=Fixture 'tampered';[IO.File]::AppendAllText((Join-Path $stage 'README.md'),'tampered');Throws {Assert-UpdaterPackage $stage $packageVersion}
+        $stage=Fixture 'extra';[IO.File]::WriteAllText((Join-Path $stage 'settings.local.json'),'{}');Throws {Assert-UpdaterPackage $stage $packageVersion}
         Throws {Assert-UpdaterPackage (Join-Path $temp 'valid') '2.0.0'}
     }
     Test 'Git checkouts and nested folders cannot self-update' {
         $gitRoot=Join-Path $temp 'checkout';[IO.Directory]::CreateDirectory((Join-Path $gitRoot 'nested')) | Out-Null;[IO.File]::WriteAllText((Join-Path $gitRoot '.git'),'gitdir: fixture')
-        Assert (Test-DevelopmentCheckout (Join-Path $gitRoot 'nested'));Throws {Install-UpdaterPackage $gitRoot (Join-Path $temp 'valid') '1.0.0'}
+        Assert (Test-DevelopmentCheckout (Join-Path $gitRoot 'nested'));Throws {Install-UpdaterPackage $gitRoot (Join-Path $temp 'valid') $packageVersion}
     }
     Test 'a failed file replacement rolls back the complete updater' {
         $root=Fixture 'rollback-root';$stage=Fixture 'rollback-stage'
         [IO.File]::WriteAllText((Join-Path $root 'README.md'),'original README')
         Save-JsonFile (Join-Path $root 'version.json') @{version='0.9.0'}
-        Throws {Install-UpdaterPackage $root $stage '1.0.0' {param($name) if($name -eq 'lib'){throw 'Injected swap failure'}}}
+        Throws {Install-UpdaterPackage $root $stage $packageVersion {param($name) if($name -eq 'lib'){throw 'Injected swap failure'}}}
         Equal ([IO.File]::ReadAllText((Join-Path $root 'README.md'))) 'original README';Equal (Read-JsonFile (Join-Path $root 'version.json')).version '0.9.0'
         Assert (Test-Path -LiteralPath (Join-Path $root 'lib\AddonUpdater.Core.psm1'))
         $backup=@(Get-ChildItem -LiteralPath (Join-Path $root '.self-update\backups') -Directory);Equal (Read-JsonFile (Join-Path $backup[0].FullName 'restore.json')).status 'rolled-back'
@@ -54,8 +55,8 @@ try{
         [IO.File]::WriteAllText((Join-Path $root 'README.md'),'old README');Save-JsonFile (Join-Path $root 'version.json') @{version='0.9.0'}
         foreach($name in @('settings.local.json','sources.local.json')){[IO.File]::WriteAllText((Join-Path $root $name),'personal data')}
         [IO.Directory]::CreateDirectory((Join-Path $root '.check-data')) | Out-Null;[IO.File]::WriteAllText((Join-Path $root '.check-data\cached'),'cached data')
-        $backup=Install-UpdaterPackage $root $stage '1.0.0'
-        Equal (Read-JsonFile (Join-Path $root 'version.json')).version '1.0.0';Equal ([IO.File]::ReadAllText((Join-Path $backup 'README.md'))) 'old README'
+        $backup=Install-UpdaterPackage $root $stage $packageVersion
+        Equal (Read-JsonFile (Join-Path $root 'version.json')).version $packageVersion;Equal ([IO.File]::ReadAllText((Join-Path $backup 'README.md'))) 'old README'
         foreach($name in @('settings.local.json','sources.local.json')){Equal ([IO.File]::ReadAllText((Join-Path $root $name))) 'personal data'}
         Equal ([IO.File]::ReadAllText((Join-Path $root '.check-data\cached'))) 'cached data'
     }
@@ -74,7 +75,7 @@ try{
     }
     Test 'startup update flow verifies, downloads, installs and requests restart' {
         $root=Fixture 'flow-root';Save-JsonFile (Join-Path $root 'version.json') @{version='0.9.0'};& $core {$script:FixtureChoice=0}
-        Equal (Invoke-UpdaterSelfUpdate $root) 'Restart';Equal (Read-JsonFile (Join-Path $root 'version.json')).version '1.0.0'
+        Equal (Invoke-UpdaterSelfUpdate $root) 'Restart';Equal (Read-JsonFile (Join-Path $root 'version.json')).version $packageVersion
     }
 }finally{Remove-WorkDirectory $temp ([IO.Path]::GetTempPath())}
 Write-Host "`n$script:Passed passed; $script:Failed failed."

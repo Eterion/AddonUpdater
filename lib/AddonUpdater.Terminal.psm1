@@ -26,7 +26,8 @@ function Select-TerminalOption([string]$Title,[string[]]$Options){
     }
 }
 function Update-CheckboxState([string]$Key,[int]$Cursor,[bool[]]$Checked,[bool[]]$Enabled){
-    $result=@{cursor=$Cursor;checked=@($Checked);action=''};$count=$Enabled.Count;if(-not $count){if($Key -in @('Escape','Q')){$result.action='Exit'};return $result}
+    $result=@{cursor=$Cursor;checked=@($Checked);action=''};$count=$Enabled.Count
+    if(-not $count){switch($Key){'Escape'{$result.action='Exit'};'Q'{$result.action='Exit'};'C'{$result.action='Client'};'R'{$result.action='Recheck'}};return $result}
     switch($Key){
         'UpArrow'{$result.cursor=($Cursor+$count-1)%$count}
         'DownArrow'{$result.cursor=($Cursor+1)%$count}
@@ -43,6 +44,35 @@ function Update-CheckboxState([string]$Key,[int]$Cursor,[bool[]]$Checked,[bool[]
         'Q'{$result.action='Exit'}
     };return $result
 }
+function Get-TerminalShortcutLayout([int]$Width){
+    $groups=@(
+        @(@{key='Enter';label='Update selected'},@{key='Space';label='Toggle'},@{key='A/N';label='All/none'}),
+        @(@{key='Up/Down';label='Move'},@{key='Home/End';label='First/last'},@{key='S';label='Choose source'}),
+        @(@{key='R';label='Check again'},@{key='C';label='Change game folder'},@{key='Q/Esc';label='Exit'})
+    )
+    $lines=New-Object 'System.Collections.Generic.List[object]'
+    foreach($group in $groups){
+        $line=@{segments=@();length=0}
+        foreach($item in $group){
+            $length=$item.key.Length+$item.label.Length+3
+            if($line.segments.Count -and $line.length+3+$length -gt $Width){$lines.Add($line);$line=@{segments=@();length=0}}
+            if($line.segments.Count){$line.length+=3};$line.segments+=@($item);$line.length+=$length
+        }
+        if($line.segments.Count){$lines.Add($line)}
+    }
+    return $lines.ToArray()
+}
+function Show-TerminalShortcuts([object[]]$Lines){
+    foreach($line in $Lines){
+        $first=$true
+        foreach($item in $line.segments){
+            if(-not $first){Write-Host '   ' -NoNewline};$first=$false
+            Write-Host ('['+$item.key+']') -ForegroundColor Yellow -NoNewline
+            Write-Host (' '+$item.label) -ForegroundColor White -NoNewline
+        }
+        Write-Host ''
+    }
+}
 function Show-AddonList([object[]]$Plans,[int]$Cursor,[bool[]]$Checked,[string]$Client,[switch]$NoClear){
     Show-TerminalHeading $Client -NoClear:$NoClear
     $height=30;$width=100;try{$height=$Host.UI.RawUI.WindowSize.Height;$width=$Host.UI.RawUI.WindowSize.Width-1}catch{}
@@ -52,7 +82,8 @@ function Show-AddonList([object[]]$Plans,[int]$Cursor,[bool[]]$Checked,[string]$
     $header='      '+(Format-TerminalCell 'Addon' $nameWidth)+' '+(Format-TerminalCell 'Installed' $versionWidth)+' '+(Format-TerminalCell 'Available' $versionWidth)+' '+(Format-TerminalCell 'Download' $sizeWidth)
     if($showStatus){$header+=' '+(Format-TerminalCell 'Status' $statusWidth)}
     Write-Host $header -ForegroundColor Cyan;Write-Host ('-'*[Math]::Min($width,$header.Length)) -ForegroundColor DarkGray
-    $capacity=[Math]::Max(1,$height-15);$start=[Math]::Max(0,[Math]::Min($Cursor-[Math]::Floor($capacity/2),$Plans.Count-$capacity));$end=[Math]::Min($Plans.Count,$start+$capacity)
+    $shortcuts=@(Get-TerminalShortcutLayout $width)
+    $capacity=[Math]::Max(1,$height-12-$shortcuts.Count);$start=[Math]::Max(0,[Math]::Min($Cursor-[Math]::Floor($capacity/2),$Plans.Count-$capacity));$end=[Math]::Min($Plans.Count,$start+$capacity)
     for($i=$start;$i -lt $end;$i++){
         $p=$Plans[$i];$marker=if($i -eq $Cursor){'>'}else{' '};$box=if($p.update){if($Checked[$i]){'[x]'}else{'[ ]'}}else{' - '};$size=if($p.update){'{0:N1} MB' -f ($p.size/1MB)}else{'-'}
         $row="$marker $box "+(Format-TerminalCell $p.name $nameWidth)+' '+(Format-TerminalCell $p.installed $versionWidth)+' '+(Format-TerminalCell $p.latest $versionWidth)+' '+(Format-TerminalCell $size $sizeWidth)
@@ -61,15 +92,13 @@ function Show-AddonList([object[]]$Plans,[int]$Cursor,[bool[]]$Checked,[string]$
     }
     if(-not $Plans.Count){Write-Host 'No addons found in this client.'}
     Write-Host ''
-    if($Plans.Count){$p=$Plans[$Cursor];Write-Host (Format-TerminalCell ("$($Cursor+1)/$($Plans.Count) | "+$p.name+' | '+$p.status) $width) -ForegroundColor Gray;Write-Host (Format-TerminalCell ('Source: '+$(if($p.source){$p.source}else{'Not selected'})+'  '+$p.origin) $width) -ForegroundColor DarkCyan}
+    if($Plans.Count){$p=$Plans[$Cursor];Write-Host (Format-TerminalCell ("$($Cursor+1)/$($Plans.Count) | "+$p.name+' | '+$p.status) $width) -ForegroundColor White;Write-Host (Format-TerminalCell ('Source: '+$(if($p.source){$p.source}else{'Not selected'})+'  '+$p.origin) $width) -ForegroundColor Gray}
     $selected=@(for($i=0;$i -lt $Plans.Count;$i++){if($Checked[$i]){$Plans[$i]}});$bytes=0L;foreach($p in $selected){$bytes+=[long]$p.size}
-    Write-Host ("`n{0} selected -- {1:N1} MB" -f $selected.Count,($bytes/1MB)) -ForegroundColor Cyan
-    Write-Host 'Up/Down: move | Space: toggle | A: all | N: none' -ForegroundColor DarkGray
-    Write-Host 'Enter: update | S: source | R: refresh | C: client' -ForegroundColor DarkGray
-    Write-Host 'Q / Esc: exit | Home / End: first / last addon' -ForegroundColor Cyan
+    Write-Host ("{0} selected -- {1:N1} MB" -f $selected.Count,($bytes/1MB)) -ForegroundColor Cyan
+    Write-Host ('-'*$width) -ForegroundColor Gray
+    Show-TerminalShortcuts $shortcuts
 }
 function Select-AddonUpdates([object[]]$Plans,[string]$Client){
-    if(-not $Plans.Count){return @{action='Exit';indexes=@();cursor=0}}
     $state=@{cursor=0;checked=@($Plans | ForEach-Object{[bool]$_.update});action=''};$enabled=@($Plans | ForEach-Object{[bool]$_.update})
     while($true){Show-AddonList $Plans $state.cursor $state.checked $Client;$state=Update-CheckboxState (Read-TerminalKey) $state.cursor $state.checked $enabled
         if($state.action){$indexes=@(for($i=0;$i -lt $Plans.Count;$i++){if($state.checked[$i]){$i}});return @{action=$state.action;indexes=$indexes;cursor=$state.cursor}}

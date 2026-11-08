@@ -22,6 +22,15 @@ try{
         Equal (Format-TerminalCell 'Addon' 8).Length 8
         Set-TerminalKeySequence @('Q');Equal (Select-TerminalOption 'Exit test' @('Example')) -1
     }
+    Test 'shortcut rows fit narrow terminals and expose game folder selection' {
+        foreach($width in @(40,60,80,120)){
+            $lines=@(Get-TerminalShortcutLayout $width);foreach($line in $lines){Assert ($line.length -le $width)}
+            $actions=@($lines | ForEach-Object {$_.segments});Equal @($actions | Where-Object {$_.key -eq 'C'}).Count 1
+        }
+        Equal (Update-CheckboxState 'C' 0 @($true) @($true)).action 'Client'
+        Equal (Update-CheckboxState 'C' 0 @() @()).action 'Client'
+        Equal (Update-CheckboxState 'R' 0 @() @()).action 'Recheck'
+    }
     Test 'Windows PowerShell 5.1 runtime' {Equal $PSVersionTable.PSVersion.Major 5;Equal $PSVersionTable.PSVersion.Minor 1}
     Test 'path traversal, absolute paths and Windows device names are rejected' {
         foreach($bad in @('../evil','/absolute','C:/bad','foo\bar','foo/../bar','nul.txt','x:y','trailing.','a//b')){Assert (-not(Test-SafeRelative $bad)) $bad};Assert (Test-SafeRelative 'Data/Sounds.lua')
@@ -32,11 +41,31 @@ try{
         foreach($p in @($game,$forever,$addons)){Equal (Resolve-WowInstallation $p) $addons};Assert (-not(Test-Path -LiteralPath $addons));Equal @((Find-WowInstallations @($game,$forever)) | Where-Object{$_ -eq $addons}).Count 1
         Write-File (Join-Path $temp '_retail_\Wow.exe') 'fixture';Throws {Resolve-WowInstallation (Join-Path $temp '_retail_')}
     }
+    Test 'remembered clients resolve directly and unavailable clients return to selection' {
+        Equal (Get-RememberedWowInstallation $game) $addons
+        Assert ($null -eq (Get-RememberedWowInstallation ''))
+        Assert ($null -eq (Get-RememberedWowInstallation (Join-Path $temp 'missing')))
+    }
     & $core {param($home)$script:HomeFolder=$home} (Join-Path $temp 'AppState')
     Initialize-UpdateContext $addons -CheckOnly -StateDirectory (Join-Path $temp 'State')
     Test 'check-only mode cannot install' {Throws {Install-AddonPlan @{}}}
     Test 'JSON settings preserve arrays and 64-bit timestamp strings' {$p=Join-Path $temp 'settings.json';Save-JsonFile $p @{list=@('one');modified='638981234567890123'};$m=Read-JsonFile $p;Equal $m.list.Count 1;Equal $m.modified '638981234567890123';Save-JsonFile $p @{changed=$true};Assert (Read-JsonFile $p).changed}
-    Test 'PowerShell JSON top-level arrays retain release records, not array metadata' {$list=ConvertTo-Map (ConvertFrom-Json '[{"tag_name":"v1.2","assets":[{"name":"one.zip"}]}]');Equal $list.Count 1;Equal $list[0].tag_name 'v1.2';Equal $list[0].assets[0].name 'one.zip'}
+    Test 'JSON reader preserves nested arrays, empty lists and 64-bit values' {$list=ConvertFrom-UpdaterJson '[{"tag_name":"v1.2","assets":[{"name":"one.zip"}],"empty":[],"number":638981234567890123}]';Assert ($list -is [array]);Equal $list.Count 1;Equal $list[0].tag_name 'v1.2';Equal $list[0].assets[0].name 'one.zip';Equal $list[0].empty.Count 0;Equal $list[0].number 638981234567890123}
+    Test 'indexed audio checks detect changed, missing and resized files' {
+        $audio=Join-Path $temp 'Audio';$path=Join-Path $audio 'Data\voice.ogg';Write-File $path 'audio'
+        $file=@{size=5;sha256=(Get-Hash $path)};$index=Get-SafeFileIndex $audio
+        Assert (Test-FileMatch (Join-Path $audio 'Data/voice.ogg') $file $index)
+        Assert (Test-FileMatch $path $file $index)
+        Write-File $path 'other';[IO.File]::SetLastWriteTimeUtc($path,[DateTime]::UtcNow.AddSeconds(2))
+        Assert (-not(Test-FileMatch $path $file (Get-SafeFileIndex $audio)))
+        Write-File $path 'longer';Assert (-not(Test-FileMatch $path $file (Get-SafeFileIndex $audio)))
+        Remove-Item -LiteralPath $path;Assert (-not(Test-FileMatch $path $file (Get-SafeFileIndex $audio)))
+    }
+    Test 'directory indexing rejects junctions before following them' {
+        $target=Join-Path $temp 'LinkTarget';$tree=Join-Path $temp 'LinkTree';[IO.Directory]::CreateDirectory($target) | Out-Null;[IO.Directory]::CreateDirectory($tree) | Out-Null
+        $link=Join-Path $tree 'Linked';New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+        try{Throws {Get-SafeFileIndex $tree};Throws {Assert-NoLinks $tree -Recursive}}finally{[IO.Directory]::Delete($link)}
+    }
     $example=Join-Path $addons 'Example';Write-File (Join-Path $example 'Example.toc') "## Interface: 16001`n## Version: 1.0`n## X-Website: https://github.com/author/example`n## X-Curse-Project-ID: 1234`n"
     Write-File (Join-Path $example 'README.md') 'Source https://github.com/author/example and https://github.com/other/docs'
     Write-File (Join-Path $example 'Libs\Other\README.md') 'https://github.com/library/ignored'

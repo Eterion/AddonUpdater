@@ -74,7 +74,7 @@ function Invoke-UpdaterSelfUpdate([string]$Root){
         $current=(Read-JsonFile (Join-Path $Root 'version.json')).version
         if($current -notmatch '^\d+\.\d+\.\d+$'){throw 'Local updater version is invalid.'}
         [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
-        try{$release=ConvertTo-Map (ConvertFrom-Json -InputObject (Get-RemoteText ('https://api.github.com/repos/'+$script:UpdaterRepository+'/releases/latest')))}catch{if($_.Exception.Message -like 'HTTP 404:*'){return 'Continue'};throw}
+        try{$release=ConvertFrom-UpdaterJson (Get-RemoteText ('https://api.github.com/repos/'+$script:UpdaterRepository+'/releases/latest'))}catch{if($_.Exception.Message -like 'HTTP 404:*'){return 'Continue'};throw}
         $plan=Get-SelfUpdatePlan $release $current;if(-not $plan){return 'Continue'}
         # Terminal commands are resolved from the imported terminal module.
         $choice=Select-TerminalOption ("Addon Updater $current -> $($plan.version)") @('Update Addon Updater and restart','Skip for now')
