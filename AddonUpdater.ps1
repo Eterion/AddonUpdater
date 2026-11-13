@@ -89,9 +89,14 @@ try {
                                 $activeRow=[Array]::IndexOf($plans,$plan)
                                 Show-AddonList $plans $activeRow $checked $resolved -ProgressRows $progressRows -InPlace
                             }.GetNewClosure()
-                            try{Install-SelectedPlans $selected $reportProgress;Write-Host "`nSelected updates finished. Start WoW to load them." -ForegroundColor Green}
-                            catch{Write-Host "`nUpdate stopped: $($_.Exception.Message)" -ForegroundColor Red;Write-Host 'Previously completed updates remain installed. Backups and any failed staging are retained.' -ForegroundColor DarkGray}
-                            if(-not $NoPause){[void](Read-Host 'Press Enter to return to the addon list')};continue Menu
+                            try{
+                                Install-SelectedPlans $selected $reportProgress
+                            }catch{
+                                Write-Host "`nUpdate stopped: $($_.Exception.Message)" -ForegroundColor Red
+                                Write-Host 'Previously completed updates remain installed. Backups and any failed staging are retained.' -ForegroundColor DarkGray
+                                if(-not $NoPause){[void](Read-Host 'Press Enter to return to the addon list')}
+                            }
+                            continue Menu
                         }
                     }
                 }
