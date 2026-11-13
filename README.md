@@ -102,7 +102,11 @@ To publish a release:
 
 1. Set the version in `version.json`, such as `1.0.0`, and commit the release files.
 2. Run the test suites above, then `scripts\Build-Release.ps1` using Windows PowerShell 5.1.
-3. Create a stable GitHub release from that commit with a matching tag, such as `v1.0.0`. Attach `dist\AddonUpdater.zip` with that exact filename.
+3. Publish only after the repository owner explicitly requests a release. Create a stable GitHub release from that commit with a matching tag, such as `v1.0.0`. Attach `dist\AddonUpdater.zip` with that exact filename.
 4. Verify self-updating from an older packaged copy outside a Git checkout.
 
 The package excludes personal settings, caches and development files. Published stable releases are distributed as self-updates.
+
+### Release notes
+
+Use a single **Changes** section with one short bullet per user-visible improvement or fix. Put the most useful changes first. Add an upgrade note only when users need to take action. Keep validation and test results out of the release notes.
