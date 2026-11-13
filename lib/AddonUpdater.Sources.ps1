@@ -113,7 +113,9 @@ function Install-AddonPlan($Plan) {
     try{
         if($Plan.kind -eq 'audio'){
             $local=Get-LocalMetadata 'Spoken';if(-not $local -or (Compare-AddonVersion $local.Version $Plan.required) -lt 0){throw "Spoken >=$($Plan.required) must be installed first."};$folder=$Plan.folders[0];$n=0
-            foreach($f in $Plan.manifest.files){$old=Join-Path (Join-Path $script:Root $folder) $f.path;$source=if(Test-FileMatch $old $f){$old}else{Get-AudioBlob $f};$dest=Join-Path (Join-Path $stage $folder) $f.path;[IO.Directory]::CreateDirectory((Split-Path $dest -Parent)) | Out-Null;[IO.File]::Copy($source,$dest,$false);$n++;if($n % 50 -eq 0){Show-ItemProgress 'Preparing audio pack' $n @($Plan.manifest.files).Count 'files'}}
+            $fileCount=$Plan.manifest.files.Count
+            Show-ItemProgress 'Preparing audio pack' 0 $fileCount 'files'
+            foreach($f in $Plan.manifest.files){$old=Join-Path (Join-Path $script:Root $folder) $f.path;$source=if(Test-FileMatch $old $f){$old}else{Get-AudioBlob $f};$dest=Join-Path (Join-Path $stage $folder) $f.path;[IO.Directory]::CreateDirectory((Split-Path $dest -Parent)) | Out-Null;[IO.File]::Copy($source,$dest,$false);$n++;Show-ItemProgress 'Preparing audio pack' $n $fileCount 'files'}
         }else{
             $zip=Join-Path $work 'release.zip';Save-RemoteFile $Plan.url $zip ([long]$Plan.size) $Plan.digest 'Downloading release';$unpacked=Join-Path $work 'unpacked';Expand-SafeArchive $zip $unpacked
             if($Plan.kind -eq 'dialogue'){$dirs=@(Get-ChildItem -LiteralPath $unpacked -Directory);if($dirs.Count -ne 1){throw 'Unexpected tagged archive layout.'};[IO.Directory]::Move($dirs[0].FullName,(Join-Path $stage 'DialogueUI'))}
@@ -127,12 +129,36 @@ function Install-AddonPlan($Plan) {
         Show-ItemProgress 'Verifying staged files';Assert-StagedAddons $stage $Plan.folders $Plan.latest;Assert-GameClosed
         $backup=Join-Path (Join-Path (Split-Path $script:Root -Parent) 'ForeverAddonUpdater-Backups') $job
         Show-ItemProgress 'Backing up and installing';Move-AddonFolders $script:Root $stage $Plan.folders $backup
-        $success=$true;Write-Host "  Installed. Backup: $backup" -ForegroundColor DarkGray
-    }finally{if($success){Remove-WorkDirectory $work $workRoot};Write-Progress -Id 2 -Completed -Activity 'Addon operation'}
+        $success=$true
+        if(-not $script:InstallProgress){Write-Host "  Installed. Backup: $backup" -ForegroundColor DarkGray}
+    }finally{
+        if($success){Remove-WorkDirectory $work $workRoot}
+        if(-not $script:InstallProgress){Write-Progress -Id 2 -Completed -Activity 'Addon operation'}
+    }
 }
-function Install-SelectedPlans([object[]]$Plans) {
-    Assert-GameClosed;$ordered=@($Plans | Sort-Object @{Expression={if($_.kind -eq 'spoken'){0}else{1}}});$script:ItemCount=$ordered.Count;$done=0
-    foreach($p in $ordered){$script:ItemNumber=$done+1;Write-Progress -Id 1 -Activity 'Total progress' -Status "$done of $($ordered.Count) addons complete" -PercentComplete ([int](100*$done/$ordered.Count));Write-Host "`n[$($done+1)/$($ordered.Count)] $($p.name)" -ForegroundColor Yellow;Install-AddonPlan $p;$done++;$p.update=$false;$p.installed=$p.latest;$p.status='Updated successfully'}
-    Write-Progress -Id 1 -Activity 'Total progress' -Status 'Complete' -PercentComplete 100;Write-Progress -Id 1 -Activity 'Total progress' -Completed;$script:ItemCount=0
-    Save-JsonFile $script:StatePath @{files=$script:HashState}
+function Install-SelectedPlans([object[]]$Plans,[scriptblock]$Progress){
+    Assert-GameClosed
+    $ordered=@($Plans | Sort-Object @{Expression={if($_.kind -eq 'spoken'){0}else{1}}})
+    $script:InstallProgress=$Progress
+    try{
+        foreach($plan in $ordered){
+            $script:ActiveInstallPlan=$plan
+            $script:InstallPhase=''
+            try{
+                Show-ItemProgress 'Starting update'
+                Install-AddonPlan $plan
+            }catch{
+                if($Progress){$null=& $Progress $plan 'Failed' -1}
+                throw
+            }
+            $plan.update=$false
+            $plan.installed=$plan.latest
+            $plan.status='Updated successfully'
+            if($Progress){$null=& $Progress $plan 'Installed' 100}
+        }
+        Save-JsonFile $script:StatePath @{files=$script:HashState}
+    }finally{
+        $script:InstallProgress=$null
+        $script:ActiveInstallPlan=$null
+    }
 }

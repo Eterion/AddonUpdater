@@ -125,9 +125,22 @@ try{
         & $core {param($onlyRoot,$fixtureZip)
             $script:AllowedTestRoot=$onlyRoot;$script:FixtureZip=$fixtureZip;$script:CheckOnly=$false
             function script:Assert-GameClosed {if($script:Root -ne $script:AllowedTestRoot){throw 'Test installation outside fixture refused.'}}
-            function script:Save-RemoteFile([string]$Url,[string]$Path,[long]$Size,[string]$Digest,[string]$Activity){if($Url -ne 'https://fixture.invalid/release.zip'){throw 'Unexpected test download.'};[IO.File]::Copy($script:FixtureZip,$Path)}
+            function script:Save-RemoteFile([string]$Url,[string]$Path,[long]$Size,[string]$Digest,[string]$Activity){if($Url -ne 'https://fixture.invalid/release.zip'){throw 'Unexpected test download.'};Show-ItemProgress $Activity 1 2;[IO.File]::Copy($script:FixtureZip,$Path)}
         } $addons $zip
-        $p=New-AddonPlan 'Example' @('Example') 'github';$p.latest='1.2';$p.installed='1.0';$p.url='https://fixture.invalid/release.zip';$p.update=$true;Install-SelectedPlans @($p)
+        $p=New-AddonPlan 'Example' @('Example') 'github';$p.latest='1.2';$p.installed='1.0';$p.url='https://fixture.invalid/release.zip';$p.update=$true
+        $events=New-Object 'System.Collections.Generic.List[string]'
+        $rendered=@{}
+        $report={
+            param($plan,$activity,$percent)
+            if(-not [object]::ReferenceEquals($plan,$p)){throw 'Progress was reported for the wrong row.'}
+            $events.Add("${activity}:${percent}")
+            $rendered[$plan]=@{activity=$activity;percent=$percent}
+            if($activity -eq 'Downloading release'){Show-AddonList @($p) 0 @($true) 'Fixture' -ProgressRows $rendered -NoClear}
+        }.GetNewClosure()
+        $hostOutput=@(Install-SelectedPlans @($p) $report 6>&1) -join "`n"
+        Assert ($hostOutput -match '\[#+-+\]\s+50%')
+        Assert ($events.Contains('Unpacking and checking files:0'))
+        Equal $events[$events.Count-1] 'Installed:100'
         Equal (Get-LocalMetadata 'Example').Version '1.2';Assert (-not $p.update)
         $backup=@(Get-ChildItem -LiteralPath (Join-Path $forever 'Interface\ForeverAddonUpdater-Backups') -Directory);Equal $backup.Count 1;Equal (Read-JsonFile (Join-Path $backup[0].FullName 'restore.json')).status 'complete';Assert (Test-Path -LiteralPath (Join-Path $backup[0].FullName 'Example\README.md'))
     }

@@ -52,10 +52,14 @@ try{
     }
     Test 'successful self-update preserves settings and cache and retains old files' {
         $root=Fixture 'install-root';$stage=Fixture 'install-stage'
+        Move-Item -LiteralPath (Join-Path $root 'UpdateAddons.cmd') -Destination (Join-Path $root 'Addon Updater.cmd')
         [IO.File]::WriteAllText((Join-Path $root 'README.md'),'old README');Save-JsonFile (Join-Path $root 'version.json') @{version='0.9.0'}
         foreach($name in @('settings.local.json','sources.local.json')){[IO.File]::WriteAllText((Join-Path $root $name),'personal data')}
         [IO.Directory]::CreateDirectory((Join-Path $root '.check-data')) | Out-Null;[IO.File]::WriteAllText((Join-Path $root '.check-data\cached'),'cached data')
         $backup=Install-UpdaterPackage $root $stage $packageVersion
+        Assert (Test-Path -LiteralPath (Join-Path $root 'UpdateAddons.cmd'))
+        Assert (-not(Test-Path -LiteralPath (Join-Path $root 'Addon Updater.cmd')))
+        Assert (Test-Path -LiteralPath (Join-Path $backup 'Addon Updater.cmd'))
         Equal (Read-JsonFile (Join-Path $root 'version.json')).version $packageVersion;Equal ([IO.File]::ReadAllText((Join-Path $backup 'README.md'))) 'old README'
         foreach($name in @('settings.local.json','sources.local.json')){Equal ([IO.File]::ReadAllText((Join-Path $root $name))) 'personal data'}
         Equal ([IO.File]::ReadAllText((Join-Path $root '.check-data\cached'))) 'cached data'

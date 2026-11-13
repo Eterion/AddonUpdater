@@ -80,7 +80,16 @@ try {
                         }
                         'Update'{
                             $selected=@($selection.indexes | ForEach-Object{$plans[$_]})
-                            try{Install-SelectedPlans $selected;Write-Host "`nSelected updates finished. Start WoW to load them." -ForegroundColor Green}
+                            $checked=@(for($i=0;$i -lt $plans.Count;$i++){$selection.indexes -contains $i})
+                            $progressRows=@{}
+                            foreach($plan in $selected){$progressRows[$plan]=@{activity='Queued';percent=-1}}
+                            $reportProgress={
+                                param($plan,$activity,$percent)
+                                $progressRows[$plan]=@{activity=$activity;percent=$percent}
+                                $activeRow=[Array]::IndexOf($plans,$plan)
+                                Show-AddonList $plans $activeRow $checked $resolved -ProgressRows $progressRows -InPlace
+                            }.GetNewClosure()
+                            try{Install-SelectedPlans $selected $reportProgress;Write-Host "`nSelected updates finished. Start WoW to load them." -ForegroundColor Green}
                             catch{Write-Host "`nUpdate stopped: $($_.Exception.Message)" -ForegroundColor Red;Write-Host 'Previously completed updates remain installed. Backups and any failed staging are retained.' -ForegroundColor DarkGray}
                             if(-not $NoPause){[void](Read-Host 'Press Enter to return to the addon list')};continue Menu
                         }

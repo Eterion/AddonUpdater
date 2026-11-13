@@ -12,11 +12,13 @@ function Format-TerminalCell([string]$Text,[int]$Width){
 function Set-TerminalKeySequence([string[]]$Keys){$script:Keys.Clear();foreach($key in $Keys){$script:Keys.Enqueue($key)}}
 function Read-TerminalKey {
     if($script:Keys.Count){return $script:Keys.Dequeue()}
-    if([Console]::IsInputRedirected){throw 'An interactive console is required. Double-click Addon Updater.cmd, or use -CheckOnly for noninteractive checks.'}
+    if([Console]::IsInputRedirected){throw 'An interactive console is required. Double-click UpdateAddons.cmd, or use -CheckOnly for noninteractive checks.'}
     return [Console]::ReadKey($true).Key.ToString()
 }
 function Show-TerminalHeading([string]$Subtitle,[switch]$NoClear){
-    if(-not $NoClear){Clear-Host};Write-Host 'Addon Updater' -ForegroundColor Yellow;Write-Host ('='*54) -ForegroundColor DarkYellow
+    $separatorWidth=54
+    try{$separatorWidth=[Math]::Max(1,[Math]::Min(54,$Host.UI.RawUI.WindowSize.Width-1))}catch{}
+    if(-not $NoClear){Clear-Host};Write-Host 'Addon Updater' -ForegroundColor Yellow;Write-Host ('='*$separatorWidth) -ForegroundColor DarkYellow
     if($Subtitle){Write-Host $Subtitle -ForegroundColor Gray};Write-Host ''
 }
 function Select-TerminalOption([string]$Title,[string[]]$Options){
@@ -73,30 +75,79 @@ function Show-TerminalShortcuts([object[]]$Lines){
         Write-Host ''
     }
 }
-function Show-AddonList([object[]]$Plans,[int]$Cursor,[bool[]]$Checked,[string]$Client,[switch]$NoClear){
-    Show-TerminalHeading $Client -NoClear:$NoClear
+function Format-AddonProgress($Progress,[int]$Width){
+    if($Progress.percent -lt 0 -or $Progress.activity -eq 'Installed'){
+        return Format-TerminalCell $Progress.activity $Width
+    }
+    $percentage='{0,3}%' -f $Progress.percent
+    $barWidth=[Math]::Min(12,$Width-$percentage.Length-3)
+    $filled=[int][Math]::Floor($barWidth*$Progress.percent/100.0)
+    $bar='['+('#'*$filled)+('-'*($barWidth-$filled))+'] '+$percentage
+    if($Width-$bar.Length -gt 8){$bar+=' '+$Progress.activity}
+    return Format-TerminalCell $bar $Width
+}
+function Show-AddonList([object[]]$Plans,[int]$Cursor,[bool[]]$Checked,[string]$Client,[switch]$NoClear,[hashtable]$ProgressRows,[switch]$InPlace){
+    if($InPlace){
+        try{
+            $Host.UI.RawUI.CursorPosition=[Management.Automation.Host.Coordinates]::new(0,$Host.UI.RawUI.WindowPosition.Y)
+            $NoClear=$true
+        }catch{}
+    }
     $height=30;$width=100;try{$height=$Host.UI.RawUI.WindowSize.Height;$width=$Host.UI.RawUI.WindowSize.Width-1}catch{}
-    $width=[Math]::Max(40,$width);$versionWidth=12;$sizeWidth=9;$nameWidth=[Math]::Max(10,[Math]::Min(36,$width-55));$statusWidth=$width-$nameWidth-2*$versionWidth-$sizeWidth-10
-    $showStatus=$statusWidth -ge 12
-    if(-not $showStatus){$versionWidth=8;$sizeWidth=7;$nameWidth=[Math]::Max(6,$width-2*$versionWidth-$sizeWidth-9)}
-    $header='      '+(Format-TerminalCell 'Addon' $nameWidth)+' '+(Format-TerminalCell 'Installed' $versionWidth)+' '+(Format-TerminalCell 'Available' $versionWidth)+' '+(Format-TerminalCell 'Download' $sizeWidth)
-    if($showStatus){$header+=' '+(Format-TerminalCell 'Status' $statusWidth)}
+    $width=[Math]::Max(39,$width)
+    Show-TerminalHeading (Format-TerminalCell $Client $width) -NoClear:$NoClear
+    $compact=$width -lt 70
+    if($compact){
+        $versionWidth=7
+        $nameWidth=[Math]::Min(30,$width-30)
+        $statusWidth=$width-$nameWidth-$versionWidth-8
+    }else{
+        $versionWidth=10
+        $sizeWidth=9
+        $nameWidth=[Math]::Min(36,$width-56)
+        $statusWidth=$width-$nameWidth-2*$versionWidth-$sizeWidth-10
+    }
+    $header='      '+(Format-TerminalCell 'Addon' $nameWidth)+' '+(Format-TerminalCell 'Current' $versionWidth)
+    if(-not $compact){$header+=' '+(Format-TerminalCell 'Available' $versionWidth)+' '+(Format-TerminalCell 'Download' $sizeWidth)}
+    $header+=' '+(Format-TerminalCell 'Status' $statusWidth)
     Write-Host $header -ForegroundColor Cyan;Write-Host ('-'*[Math]::Min($width,$header.Length)) -ForegroundColor DarkGray
     $shortcuts=@(Get-TerminalShortcutLayout $width)
     $capacity=[Math]::Max(1,$height-12-$shortcuts.Count);$start=[Math]::Max(0,[Math]::Min($Cursor-[Math]::Floor($capacity/2),$Plans.Count-$capacity));$end=[Math]::Min($Plans.Count,$start+$capacity)
     for($i=$start;$i -lt $end;$i++){
-        $p=$Plans[$i];$marker=if($i -eq $Cursor){'>'}else{' '};$box=if($p.update){if($Checked[$i]){'[x]'}else{'[ ]'}}else{' - '};$size=if($p.update){'{0:N1} MB' -f ($p.size/1MB)}else{'-'}
-        $row="$marker $box "+(Format-TerminalCell $p.name $nameWidth)+' '+(Format-TerminalCell $p.installed $versionWidth)+' '+(Format-TerminalCell $p.latest $versionWidth)+' '+(Format-TerminalCell $size $sizeWidth)
-        if($showStatus){$row+=' '+(Format-TerminalCell $p.status $statusWidth)}
+        $p=$Plans[$i];$marker=if($i -eq $Cursor){'>'}else{' '};$box=if($Checked[$i]){'[x]'}elseif($p.update){'[ ]'}else{' - '}
+        $row="$marker $box "+(Format-TerminalCell $p.name $nameWidth)+' '+(Format-TerminalCell $p.installed $versionWidth)
+        if(-not $compact){
+            $size=if($p.update -or $Checked[$i]){'{0:N1} MB' -f ($p.size/1MB)}else{'-'}
+            $row+=' '+(Format-TerminalCell $p.latest $versionWidth)+' '+(Format-TerminalCell $size $sizeWidth)
+        }
+        $status=if($ProgressRows -and $ProgressRows.ContainsKey($p)){Format-AddonProgress $ProgressRows[$p] $statusWidth}else{Format-TerminalCell $p.status $statusWidth}
+        $row+=' '+$status
         Write-Host $row -ForegroundColor $(if($i -eq $Cursor){'Yellow'}elseif($p.status -like 'CHECK FAILED*'){'Red'}else{'Gray'})
     }
     if(-not $Plans.Count){Write-Host 'No addons found in this client.'}
     Write-Host ''
-    if($Plans.Count){$p=$Plans[$Cursor];Write-Host (Format-TerminalCell ("$($Cursor+1)/$($Plans.Count) | "+$p.name+' | '+$p.status) $width) -ForegroundColor White;Write-Host (Format-TerminalCell ('Source: '+$(if($p.source){$p.source}else{'Not selected'})+'  '+$p.origin) $width) -ForegroundColor Gray}
+    if($Plans.Count){
+        $p=$Plans[$Cursor]
+        $detail=$p.status
+        if($ProgressRows -and $ProgressRows.ContainsKey($p)){$detail=$ProgressRows[$p].activity}
+        Write-Host (Format-TerminalCell ("$($Cursor+1)/$($Plans.Count) | "+$p.name+' | '+$detail) $width) -ForegroundColor White
+        Write-Host (Format-TerminalCell ('Source: '+$(if($p.source){$p.source}else{'Not selected'})+'  '+$p.origin) $width) -ForegroundColor Gray
+    }
     $selected=@(for($i=0;$i -lt $Plans.Count;$i++){if($Checked[$i]){$Plans[$i]}});$bytes=0L;foreach($p in $selected){$bytes+=[long]$p.size}
-    Write-Host ("{0} selected -- {1:N1} MB" -f $selected.Count,($bytes/1MB)) -ForegroundColor Cyan
+    $summary="{0} selected -- {1:N1} MB" -f $selected.Count,($bytes/1MB)
+    if($ProgressRows){
+        $done=@($ProgressRows.Values | Where-Object {$_.activity -eq 'Installed'}).Count
+        $summary="$done of $($selected.Count) updates installed"
+    }
+    Write-Host (Format-TerminalCell $summary $width) -ForegroundColor Cyan
     Write-Host ('-'*$width) -ForegroundColor Gray
-    Show-TerminalShortcuts $shortcuts
+    if($ProgressRows){
+        $message='Installation in progress'
+        if(@($ProgressRows.Values | Where-Object {$_.activity -eq 'Failed'}).Count){$message='Installation stopped'}
+        elseif($done -eq $selected.Count){$message='Installation complete'}
+        Write-Host (Format-TerminalCell $message $width) -ForegroundColor Cyan
+        for($i=1;$i -lt $shortcuts.Count;$i++){Write-Host (' '*$width)}
+    }else{Show-TerminalShortcuts $shortcuts}
 }
 function Select-AddonUpdates([object[]]$Plans,[string]$Client){
     $state=@{cursor=0;checked=@($Plans | ForEach-Object{[bool]$_.update});action=''};$enabled=@($Plans | ForEach-Object{[bool]$_.update})

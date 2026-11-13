@@ -1,6 +1,6 @@
 # Self-update support. Dot-sourced into the core module; only official packaged releases are accepted.
 $script:UpdaterRepository='Eterion/AddonUpdater'
-$script:UpdaterFiles=@('Addon Updater.cmd','AddonUpdater.ps1','config.json','version.json','README.md','THIRD_PARTY_NOTICES.md','release-files.json','lib')
+$script:UpdaterFiles=@('UpdateAddons.cmd','AddonUpdater.ps1','config.json','version.json','README.md','THIRD_PARTY_NOTICES.md','release-files.json','lib')
 function Test-DevelopmentCheckout([string]$Root){
     $parent=[IO.Path]::GetFullPath($Root)
     while($parent){if(Test-Path -LiteralPath (Join-Path $parent '.git')){return $true};$next=Split-Path $parent -Parent;if($next -eq $parent){break};$parent=$next};return $false
@@ -40,25 +40,28 @@ function Install-UpdaterPackage([string]$Root,[string]$Stage,[string]$Version,[s
     $ancestor=[IO.Path]::GetFullPath($Root);while($ancestor){Assert-NoLinks $ancestor;$next=Split-Path $ancestor -Parent;if($next -eq $ancestor){break};$ancestor=$next}
     Assert-UpdaterPackage $Stage $Version
     Assert-NoLinks (Join-Path $Root '.self-update') -Recursive
-    foreach($name in $script:UpdaterFiles){Assert-NoLinks (Join-Path $Root $name) -Recursive}
+    $legacyLauncher='Addon Updater.cmd'
+    $managedFiles=$script:UpdaterFiles+@($legacyLauncher)
+    foreach($name in $managedFiles){Assert-NoLinks (Join-Path $Root $name) -Recursive}
     $backup=Join-Path $Root ('.self-update/backups/'+[DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff')+'-'+[Guid]::NewGuid().ToString('N'))
     [IO.Directory]::CreateDirectory($backup) | Out-Null
     $moved=New-Object 'System.Collections.Generic.List[string]';$installed=New-Object 'System.Collections.Generic.List[string]'
-    Save-JsonFile (Join-Path $backup 'restore.json') @{status='installing';version=$Version;items=$script:UpdaterFiles}
+    Save-JsonFile (Join-Path $backup 'restore.json') @{status='installing';version=$Version;items=$managedFiles}
     try{
-        foreach($name in $script:UpdaterFiles){
+        foreach($name in $managedFiles){
             $target=Join-Path $Root $name
             if(Test-Path -LiteralPath $target){Move-Item -LiteralPath $target -Destination (Join-Path $backup $name);$moved.Add($name)}
+            if($name -eq $legacyLauncher){continue}
             if($BeforeInstall){& $BeforeInstall $name}
             Move-Item -LiteralPath (Join-Path $Stage $name) -Destination $target;$installed.Add($name)
         }
-        Save-JsonFile (Join-Path $backup 'restore.json') @{status='complete';version=$Version;items=$script:UpdaterFiles}
+        Save-JsonFile (Join-Path $backup 'restore.json') @{status='complete';version=$Version;items=$managedFiles}
     }catch{
         $failure=$_
         try{
             for($i=$installed.Count-1;$i -ge 0;$i--){Move-Item -LiteralPath (Join-Path $Root $installed[$i]) -Destination (Join-Path $Stage $installed[$i])}
             for($i=$moved.Count-1;$i -ge 0;$i--){Move-Item -LiteralPath (Join-Path $backup $moved[$i]) -Destination (Join-Path $Root $moved[$i])}
-            Save-JsonFile (Join-Path $backup 'restore.json') @{status='rolled-back';version=$Version;items=$script:UpdaterFiles}
+            Save-JsonFile (Join-Path $backup 'restore.json') @{status='rolled-back';version=$Version;items=$managedFiles}
         }catch{
             $fatal=[InvalidOperationException]::new("Self-update rollback was interrupted. Close the updater and restore the files from $backup. Staging: $Stage",$_.Exception)
             $fatal.Data['SelfUpdateFatal']=$true;throw $fatal

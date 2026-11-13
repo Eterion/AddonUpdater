@@ -5,10 +5,10 @@ Check and update your WoW Forever addons from a simple keyboard menu. Runs on Wi
 ## Get started
 
 1. Extract the updater into its own folder and keep all its files together.
-2. Double-click **Addon Updater.cmd**.
+2. Double-click **UpdateAddons.cmd**.
 3. Choose your WoW installation. If it isn't listed, choose **Enter a custom path**.
 4. Available updates start checked. Use **Up/Down** to move and **Space** to uncheck any you want to skip.
-5. Close WoW, press **Enter**, and let the updates finish. Progress appears in the terminal.
+5. Close WoW, press **Enter**, and let the updates finish. The Status column shows progress for each selected addon.
 
 Press **Q** or **Esc** to exit a menu. Let an installation finish before closing the window.
 
@@ -43,6 +43,8 @@ For a custom path, select your `World of Warcraft`, `_forever_`, or `_forever_\I
 ## Updating the updater
 
 Downloaded release copies check for a newer Addon Updater version at startup. Choose **Update Addon Updater and restart** or **Skip for now**. Your saved settings are kept.
+
+To switch from an installation launched by `Addon Updater.cmd`, extract the new ZIP over that installation and open `UpdateAddons.cmd`. The old launcher can be removed.
 
 Update copies inside a Git checkout through Git.
 

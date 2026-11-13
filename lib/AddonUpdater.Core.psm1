@@ -11,8 +11,10 @@ $script:Sources = @{}
 $script:Lock = $null
 $script:Root = $null
 $script:CheckOnly = $false
-$script:ItemNumber = 0
-$script:ItemCount = 0
+$script:InstallProgress = $null
+$script:ActiveInstallPlan = $null
+$script:InstallPhase = ''
+$script:LastInstallReport = [DateTime]::MinValue
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.Web.Extensions
@@ -123,9 +125,19 @@ function Test-FileMatch([string]$Path,$File,[System.Collections.IDictionary]$Fil
     $digest=Get-Hash $Path;$script:HashState[$key]=@{size=$s.Length;modified=$s.LastWriteTimeUtc.Ticks.ToString();created=$s.CreationTimeUtc.Ticks.ToString();hash=$digest};return $digest -eq $File.sha256
 }
 function Show-ItemProgress([string]$Activity,[long]$Current=-1,[long]$Total=-1,[string]$Unit='bytes') {
+    if($script:InstallProgress){
+        $now=[DateTime]::UtcNow
+        if($Activity -eq $script:InstallPhase -and ($now-$script:LastInstallReport).TotalMilliseconds -lt 150){return}
+        $script:InstallPhase=$Activity
+        $script:LastInstallReport=$now
+        $percent=-1
+        if($Total -gt 0 -and $Current -ge 0){$percent=[Math]::Min(100,[int][Math]::Floor(100.0*$Current/$Total))}
+        $null=& $script:InstallProgress $script:ActiveInstallPlan $Activity $percent
+        return
+    }
     $status=$Activity;$percent=-1
     if($Total -gt 0 -and $Current -ge 0){$percent=[Math]::Min(100,[int](100.0*$Current/$Total));if($Unit -eq 'files'){$status="${Current}/${Total} files"}else{$status=('{0:N1} / {1:N1} MB' -f ($Current/1MB),($Total/1MB))}}
-    $parent=0;if($script:ItemCount -gt 0){$parent=1};Write-Progress -Id 2 -ParentId $parent -Activity $Activity -Status $status -PercentComplete $percent
+    Write-Progress -Id 2 -Activity $Activity -Status $status -PercentComplete $percent
 }
 function Get-HttpBytes([string]$Url,[long]$Limit=20MB) {
     if($Url -notmatch '^https://'){throw 'Only HTTPS sources are supported.'}
@@ -136,13 +148,13 @@ function Get-HttpBytes([string]$Url,[long]$Limit=20MB) {
 }
 function Get-RemoteText([string]$Url){return [Text.Encoding]::UTF8.GetString((Get-HttpBytes $Url))}
 function Get-RemoteJson([string]$Url){if(-not $script:ApiCache.ContainsKey($Url)){$script:ApiCache[$Url]=ConvertFrom-UpdaterJson (Get-RemoteText $Url)};return $script:ApiCache[$Url]}
-function Save-RemoteFile([string]$Url,[string]$Path,[long]$Size=0,[string]$Digest,[string]$Activity='Downloading') {
+function Save-RemoteFile([string]$Url,[string]$Path,[long]$Size=0,[string]$Digest,[string]$Activity='Downloading',[switch]$Quiet) {
     if($Url -notmatch '^https://'){throw 'Only HTTPS downloads are supported.'}
     [IO.Directory]::CreateDirectory((Split-Path $Path -Parent)) | Out-Null
     $req=[Net.HttpWebRequest]::Create($Url);$req.UserAgent='AddonUpdater/0.2';$req.Timeout=120000;$req.ReadWriteTimeout=120000
     $response=$req.GetResponse();$input=$response.GetResponseStream();$output=[IO.File]::Create($Path+'.part')
     $received=0L;$last=[DateTime]::MinValue;$limit=512MB;if($Size -gt 0){$limit=$Size}
-    try{$buffer=New-Object byte[] 131072;while(($n=$input.Read($buffer,0,$buffer.Length)) -gt 0){$received+=$n;if($received -gt $limit){throw 'Download exceeds expected size.'};$output.Write($buffer,0,$n);if(([DateTime]::UtcNow-$last).TotalMilliseconds -gt 150){Show-ItemProgress $Activity $received $(if($Size -gt 0){$Size}else{$response.ContentLength});$last=[DateTime]::UtcNow}}}
+    try{$buffer=New-Object byte[] 131072;while(($n=$input.Read($buffer,0,$buffer.Length)) -gt 0){$received+=$n;if($received -gt $limit){throw 'Download exceeds expected size.'};$output.Write($buffer,0,$n);if(-not $Quiet -and ([DateTime]::UtcNow-$last).TotalMilliseconds -gt 150){Show-ItemProgress $Activity $received $(if($Size -gt 0){$Size}else{$response.ContentLength});$last=[DateTime]::UtcNow}}}
     finally{$output.Dispose();$input.Dispose();$response.Dispose()}
     if($Size -gt 0 -and $received -ne $Size){throw 'Download length does not match the release.'}
     if($Digest -and (Get-Hash ($Path+'.part')) -ne $Digest){throw 'Download SHA-256 verification failed.'}
@@ -167,7 +179,8 @@ function Open-SignedEnvelope($Envelope,[string]$PublicKey=$script:PublicKey) {
 function Get-AudioBlob($File) {
     $p=Join-Path (Join-Path $script:Data 'blobs') $File.sha256
     if((Test-Path -LiteralPath $p -PathType Leaf) -and (Get-Item -LiteralPath $p).Length -eq [long]$File.size -and (Get-Hash $p) -eq $File.sha256){return $p}
-    Save-RemoteFile ($script:PacksBase+'blobs/'+$File.sha256) $p ([long]$File.size) $File.sha256 'Fetching audio changes';return $p
+    Save-RemoteFile ($script:PacksBase+'blobs/'+$File.sha256) $p ([long]$File.size) $File.sha256 'Fetching audio changes' -Quiet:([bool]$script:InstallProgress)
+    return $p
 }
 function Test-AudioManifest($Envelope,[string]$Folder,$IndexEntry) {
     $m=$Envelope.value
@@ -179,6 +192,7 @@ function Test-AudioManifest($Envelope,[string]$Folder,$IndexEntry) {
 function Expand-SafeArchive([string]$Zip,[string]$Destination) {
     $crcs=[AddonUpdater.ArchiveTools]::Crcs($Zip);$archive=[IO.Compression.ZipFile]::OpenRead($Zip)
     try{
+        if($script:InstallProgress){Show-ItemProgress 'Unpacking and checking files' 0 $archive.Entries.Count 'files'}
         $seen=@{};$total=0L
         foreach($entry in $archive.Entries){$name=$entry.FullName.Replace('\','/').TrimEnd('/');if(-not(Test-SafeRelative $name) -or $seen.ContainsKey($name) -or $entry.Length -gt 512MB){throw "Unsafe or duplicate ZIP path: $name"};$seen[$name]=$true;$total+=$entry.Length;if($total -gt 2GB){throw 'Uncompressed release exceeds size limit.'}}
         $n=0;foreach($entry in $archive.Entries){$n++;if($entry.FullName.EndsWith('/') -or $entry.FullName.EndsWith('\')){continue};$dest=Join-Path $Destination ($entry.FullName.Replace('/',[IO.Path]::DirectorySeparatorChar));[IO.Directory]::CreateDirectory((Split-Path $dest -Parent)) | Out-Null

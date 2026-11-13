@@ -9,7 +9,7 @@ if($version -notmatch '^\d+\.\d+\.\d+$'){throw 'version.json must contain a thre
 $boundary=Join-Path $root '.release-build';Assert-NoLinks $boundary -Recursive
 $work=Join-Path $boundary ([Guid]::NewGuid().ToString('N'));$stage=Join-Path $work 'package';[IO.Directory]::CreateDirectory($stage) | Out-Null
 try{
-    foreach($name in @('Addon Updater.cmd','AddonUpdater.ps1','config.json','version.json','README.md','THIRD_PARTY_NOTICES.md','lib')){
+    foreach($name in @('UpdateAddons.cmd','AddonUpdater.ps1','config.json','version.json','README.md','THIRD_PARTY_NOTICES.md','lib')){
         $source=Join-Path $root $name;Assert-NoLinks $source -Recursive;Copy-Item -LiteralPath $source -Destination (Join-Path $stage $name) -Recurse
     }
     $files=@(Get-ChildItem -LiteralPath $stage -Recurse -File | Sort-Object FullName | ForEach-Object {@{path=$_.FullName.Substring($stage.Length+1).Replace('\','/');sha256=(Get-Hash $_.FullName)}})
