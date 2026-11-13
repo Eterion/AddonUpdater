@@ -58,6 +58,11 @@ try{
         Assert (Test-FileMatch $path $file $index)
         Write-File $path 'other';[IO.File]::SetLastWriteTimeUtc($path,[DateTime]::UtcNow.AddSeconds(2))
         Assert (-not(Test-FileMatch $path $file (Get-SafeFileIndex $audio)))
+        & $core {
+            param($fixture,$expected)
+            function Get-Hash {throw 'Unchanged mismatching file should reuse its cached hash.'}
+            if(Test-FileMatch $fixture $expected){throw 'Cached mismatch was reported as a match.'}
+        } $path $file
         Write-File $path 'longer';Assert (-not(Test-FileMatch $path $file (Get-SafeFileIndex $audio)))
         Remove-Item -LiteralPath $path;Assert (-not(Test-FileMatch $path $file (Get-SafeFileIndex $audio)))
     }

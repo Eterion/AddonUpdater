@@ -65,6 +65,21 @@ function Get-GithubPlan([string]$Folder,[string]$Repo,[string]$Origin) {
         $p.latest=$packages[0].version;$p.url=$a.browser_download_url;$p.size=[long]$a.size;if($a.digest -match '^sha256:[a-f0-9]{64}$'){$p.digest=$a.digest.Substring(7)};$cmp=Compare-AddonVersion $p.installed $p.latest;$p.update=$cmp -lt 0;$p.status=if($cmp -lt 0){'Update available'}elseif($cmp -gt 0){'Installed version is newer; no downgrade'}else{'Up to date'};return $p
     };$p.status='No verifiable Forever-compatible packaged release';return $p
 }
+function Get-VerifiedAudioManifest([string]$Folder,$Entry){
+    $cachePath=Join-Path $script:Data "manifests/$($Entry.manifestSha256).json"
+    try{
+        $cached=Read-JsonFile $cachePath
+        if($cached.signed){
+            return Test-AudioManifest (Open-SignedEnvelope $cached) $Folder $Entry
+        }
+    }catch{
+        Write-Verbose "Cached manifest for $Folder could not be verified. Fetching it again."
+    }
+    $raw=Get-RemoteJson ($script:PacksBase+"packs/$Folder/$($Entry.rev).json")
+    $manifest=Test-AudioManifest (Open-SignedEnvelope $raw) $Folder $Entry
+    Save-JsonFile $cachePath $raw
+    return $manifest
+}
 function Get-AudioPlans([string[]]$Installed) {
     if(-not @($Installed | Where-Object{$_ -match '^Spoken.*Audio'}).Count){return @()}
     $raw=Get-RemoteJson ($script:PacksBase+'index.json');$index=(Open-SignedEnvelope $raw).value
@@ -75,14 +90,27 @@ function Get-AudioPlans([string[]]$Installed) {
         $p=New-AddonPlan $folder @($folder) 'audio';$p.source='packs.spoken.quest';$p.origin='Signed audio catalog'
         try{
             if($folder -notmatch '^Spoken[A-Za-z]+(?:_[a-z]{2}[A-Z]{2})?$'){throw 'Invalid audio pack name.'}
-            $fileIndex=Get-SafeFileIndex (Join-Path $script:Root $folder)
+            $packPath=Join-Path $script:Root $folder
             $entry=$index.packs[$folder];if($entry.rev -notmatch '^\d{8}T\d{6}Z$' -or $entry.manifestSha256 -notmatch '^[a-f0-9]{64}$'){throw 'Invalid audio catalog revision.'}
             Write-Host "Checking $folder..." -ForegroundColor Gray
-            $envelope=Open-SignedEnvelope (Get-RemoteJson ($script:PacksBase+"packs/$folder/$($entry.rev).json"));$m=Test-AudioManifest $envelope $folder $entry
+            $m=Get-VerifiedAudioManifest $folder $entry
             $toc=$m.files | Where-Object{$_.path -eq "$folder.toc"} | Select-Object -First 1;$remote=Get-TocMetadata ([IO.File]::ReadAllText((Get-AudioBlob $toc)))
             if(-not(Test-Compatible $remote)){throw 'Audio pack does not support this Forever interface.'};$p.installed=(Get-LocalMetadata $folder).Version;$p.latest=$remote.Version;$p.manifest=$m;$p.required=$m.requires.Spoken.Substring(2)
             $changed=New-Object 'System.Collections.Generic.List[object]';$newer=(Compare-AddonVersion $p.installed $p.latest) -gt 0
-            if(-not $newer){$i=0;foreach($f in $m.files){if(-not(Test-FileMatch (Join-Path (Join-Path $script:Root $folder) $f.path) $f $fileIndex)){$changed.Add($f);$p.size+=[long]$f.size};$i++;if($i % 100 -eq 0){Show-ItemProgress "Checking $folder" $i @($m.files).Count 'files'}}}
+            if(-not $newer){
+                $fileIndex=Get-SafeFileIndex $packPath
+                $fileCount=$m.files.Count
+                $i=0
+                foreach($f in $m.files){
+                    $path=[IO.Path]::Combine($packPath,$f.path)
+                    if(-not(Test-FileMatch $path $f $fileIndex)){
+                        $changed.Add($f)
+                        $p.size+=[long]$f.size
+                    }
+                    $i++
+                    if($i % 500 -eq 0){Show-ItemProgress "Checking $folder" $i $fileCount 'files'}
+                }
+            }
             $p.changed=$changed.ToArray();$p.update=$changed.Count -gt 0;$p.status=if($newer){'Installed version is newer; no downgrade'}elseif($p.update){"$($changed.Count) changed/missing files"}else{'Up to date'}
         }catch{$p.update=$false;$p.status='CHECK FAILED: '+$_.Exception.Message};$plans.Add($p)
     };Write-Progress -Id 2 -Completed -Activity 'Audio check';return $plans.ToArray()
@@ -103,7 +131,8 @@ function Get-AddonPlans {
     $result=New-Object 'System.Collections.Generic.List[object]';$grouped=@{}
     foreach($p in $plans){if($p.kind -eq 'github' -and $p.url){$key=$p.source+'|'+$p.url;if($grouped.ContainsKey($key)){$g=$grouped[$key];$g.folders+=@($p.folders);$g.name=$g.folders -join ' + ';$g.installed+=', '+$p.installed;$g.update=$g.update -or $p.update;$g.choices=@($g.choices | Where-Object{$p.choices -contains $_});continue};$grouped[$key]=$p};$result.Add($p)}
     foreach($p in $result | Where-Object{$_.kind -eq 'github' -and $_.folders.Count -gt 1}){foreach($folder in $p.folders){if((Compare-AddonVersion (Get-LocalMetadata $folder).Version $p.latest) -gt 0){$p.update=$false;$p.status='A bundled folder is newer; no downgrade';break}};if($p.update){$p.status='Update available; bundled folders update together'}}
-    Save-JsonFile $script:StatePath @{files=$script:HashState};return $result.ToArray()
+    Save-HashState
+    return $result.ToArray()
 }
 function Assert-GameClosed { if(Get-Process -Name Wow,WowClassic,WowT,WowB -ErrorAction SilentlyContinue){throw 'Close World of Warcraft before installing updates.'} }
 function Install-AddonPlan($Plan) {
@@ -156,7 +185,7 @@ function Install-SelectedPlans([object[]]$Plans,[scriptblock]$Progress){
             $plan.status='Updated successfully'
             if($Progress){$null=& $Progress $plan 'Installed' 100}
         }
-        Save-JsonFile $script:StatePath @{files=$script:HashState}
+        Save-HashState
     }finally{
         $script:InstallProgress=$null
         $script:ActiveInstallPlan=$null

@@ -104,6 +104,7 @@ function Initialize-UpdateContext([string]$AddonsPath,[switch]$CheckOnly,[string
     $script:LockPath=Join-Path $script:Data 'running.lock'
     try{$script:Lock=[IO.File]::Open($script:LockPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)}catch{throw "Another updater may be running. If it crashed, remove $script:LockPath after closing all updater sessions."}
     $script:StatePath=Join-Path $script:Data 'state.ps51.json';$script:HashState=@{}
+    $script:HashStateChanged=$false
     try{$loaded=Read-JsonFile $script:StatePath;if($loaded.files){$script:HashState=$loaded.files}}catch{}
     try{$script:Sources=Read-JsonFile (Join-Path $script:HomeFolder 'sources.local.json')}catch{$script:Sources=@{}}
     $script:ApiCache=@{};[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
@@ -121,8 +122,21 @@ function Test-FileMatch([string]$Path,$File,[System.Collections.IDictionary]$Fil
     else{if(-not(Test-Path -LiteralPath $Path -PathType Leaf)){return $false};Assert-NoLinks $Path;$s=Get-Item -LiteralPath $Path}
     $key=$s.FullName.ToLowerInvariant();$cached=$script:HashState[$key]
     if($s.Length -ne [long]$File.size){return $false}
-    if($cached -and $cached.size -eq $s.Length -and $cached.modified -eq $s.LastWriteTimeUtc.Ticks.ToString() -and $cached.created -eq $s.CreationTimeUtc.Ticks.ToString() -and $cached.hash -eq $File.sha256){return $true}
-    $digest=Get-Hash $Path;$script:HashState[$key]=@{size=$s.Length;modified=$s.LastWriteTimeUtc.Ticks.ToString();created=$s.CreationTimeUtc.Ticks.ToString();hash=$digest};return $digest -eq $File.sha256
+    $modified=$s.LastWriteTimeUtc.Ticks.ToString()
+    $created=$s.CreationTimeUtc.Ticks.ToString()
+    if($cached -and $cached.size -eq $s.Length -and $cached.modified -eq $modified -and $cached.created -eq $created -and $cached.hash -match '^[a-f0-9]{64}$'){
+        return $cached.hash -eq $File.sha256
+    }
+    $digest=Get-Hash $Path
+    $script:HashState[$key]=@{size=$s.Length;modified=$modified;created=$created;hash=$digest}
+    $script:HashStateChanged=$true
+    return $digest -eq $File.sha256
+}
+function Save-HashState {
+    if($script:HashStateChanged){
+        Save-JsonFile $script:StatePath @{files=$script:HashState}
+        $script:HashStateChanged=$false
+    }
 }
 function Show-ItemProgress([string]$Activity,[long]$Current=-1,[long]$Total=-1,[string]$Unit='bytes') {
     if($script:InstallProgress){
