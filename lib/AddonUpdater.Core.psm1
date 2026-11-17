@@ -102,7 +102,14 @@ function Initialize-UpdateContext([string]$AddonsPath,[switch]$CheckOnly,[string
     if($StateDirectory){$script:Data=[IO.Path]::GetFullPath($StateDirectory)}elseif($CheckOnly){$script:Data=Join-Path $script:HomeFolder '.check-data'}else{$script:Data=Join-Path (Split-Path $script:Root -Parent) 'ForeverAddonUpdater-Data'}
     [IO.Directory]::CreateDirectory($script:Data) | Out-Null
     $script:LockPath=Join-Path $script:Data 'running.lock'
-    try{$script:Lock=[IO.File]::Open($script:LockPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)}catch{throw "Another updater may be running. If it crashed, remove $script:LockPath after closing all updater sessions."}
+    Assert-NoLinks $script:LockPath
+    try {
+        # The open handle holds the lock. Windows releases it even if PowerShell is terminated.
+        $script:Lock=[IO.File]::Open($script:LockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    } catch [IO.IOException] {
+        if(($_.Exception.HResult -band 0xffff) -eq 32){throw 'Another updater is using this game folder. Close that session and try again.'}
+        throw
+    }
     $script:StatePath=Join-Path $script:Data 'state.ps51.json';$script:HashState=@{}
     $script:HashStateChanged=$false
     try{$loaded=Read-JsonFile $script:StatePath;if($loaded.files){$script:HashState=$loaded.files}}catch{}
@@ -110,7 +117,7 @@ function Initialize-UpdateContext([string]$AddonsPath,[switch]$CheckOnly,[string
     $script:ApiCache=@{};[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
 }
 function Close-UpdateContext {
-    if($script:Lock){$script:Lock.Dispose();$script:Lock=$null;if(Test-Path -LiteralPath $script:LockPath){Remove-Item -LiteralPath $script:LockPath -Force}}
+    if($script:Lock){$script:Lock.Dispose();$script:Lock=$null}
 }
 function Get-Hash([string]$Path){
     $stream=[IO.File]::OpenRead($Path);$hash=[Security.Cryptography.SHA256]::Create()

@@ -47,7 +47,22 @@ try{
         Assert ($null -eq (Get-RememberedWowInstallation (Join-Path $temp 'missing')))
     }
     & $core {param($home)$script:HomeFolder=$home} (Join-Path $temp 'AppState')
-    Initialize-UpdateContext $addons -CheckOnly -StateDirectory (Join-Path $temp 'State')
+    $stateDirectory=Join-Path $temp 'State'
+    Test 'game folder lock blocks concurrent sessions and reopens a leftover lock file' {
+        $null=New-Item -ItemType Directory -Path $stateDirectory -Force
+        $lockPath=Join-Path $stateDirectory 'running.lock'
+        [IO.File]::WriteAllText($lockPath,'')
+        $heldLock=[IO.File]::Open($lockPath,[IO.FileMode]::Open,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        try {
+            Throws {Initialize-UpdateContext $addons -CheckOnly -StateDirectory $stateDirectory}
+        } finally {
+            $heldLock.Dispose()
+        }
+        Initialize-UpdateContext $addons -CheckOnly -StateDirectory $stateDirectory
+        Close-UpdateContext
+        Assert (Test-Path -LiteralPath $lockPath)
+    }
+    Initialize-UpdateContext $addons -CheckOnly -StateDirectory $stateDirectory
     Test 'check-only mode cannot install' {Throws {Install-AddonPlan @{}}}
     Test 'JSON settings preserve arrays and 64-bit timestamp strings' {$p=Join-Path $temp 'settings.json';Save-JsonFile $p @{list=@('one');modified='638981234567890123'};$m=Read-JsonFile $p;Equal $m.list.Count 1;Equal $m.modified '638981234567890123';Save-JsonFile $p @{changed=$true};Assert (Read-JsonFile $p).changed}
     Test 'JSON reader preserves nested arrays, empty lists and 64-bit values' {$list=ConvertFrom-UpdaterJson '[{"tag_name":"v1.2","assets":[{"name":"one.zip"}],"empty":[],"number":638981234567890123}]';Assert ($list -is [array]);Equal $list.Count 1;Equal $list[0].tag_name 'v1.2';Equal $list[0].assets[0].name 'one.zip';Equal $list[0].empty.Count 0;Equal $list[0].number 638981234567890123}

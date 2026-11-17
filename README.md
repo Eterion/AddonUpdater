@@ -69,7 +69,7 @@ Updater program backups are stored in `.self-update\backups` beside the scripts.
 - Archive paths, checksums, addon versions, dependencies and bundle membership are checked before replacement. Unverifiable packages are withheld; older versions don't replace newer ones.
 - Self-updates use stable releases from `Eterion/AddonUpdater`, with GitHub's SHA-256 digest and a package file manifest. Verification trusts the GitHub repository and HTTPS.
 - `config.json` sets the target interface version, currently `16001`. Personal choices are saved in Git-ignored `settings.local.json` and `sources.local.json`.
-- Addon cache and staging use `Interface\ForeverAddonUpdater-Data`. A stale `running.lock` there may be removed after all updater sessions have closed.
+- Addon cache and staging use `Interface\ForeverAddonUpdater-Data`. The updater releases its lock when the process exits.
 - The bundled signature-verification library and its license are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Command-line options
