@@ -141,10 +141,11 @@ try{
         & $core {$script:FixtureIndex.releases[0].metadata[0].interface=16001;$script:FixtureIndex.releases+=@($script:FixtureIndex.releases[0])};$p=Get-GithubPlan 'Example' 'author/example' 'TOC';Assert (-not $p.update);Assert ($p.status -match 'Multiple');& $core {$script:FixtureIndex.releases=@($script:FixtureIndex.releases[0])}
     }
     Test 'generic discovery produces an update plan using the saved source' {$plans=@(Get-AddonPlans);Equal $plans.Count 1;Equal $plans[0].source 'author/example';Assert $plans[0].update}
-    Test 'full selected-update pipeline stages, installs and retains a recoverable backup' {
+    Test 'selected updates install with WoW running and retain a recoverable backup' {
         & $core {param($onlyRoot,$fixtureZip)
             $script:AllowedTestRoot=$onlyRoot;$script:FixtureZip=$fixtureZip;$script:CheckOnly=$false
-            function script:Assert-GameClosed {if($script:Root -ne $script:AllowedTestRoot){throw 'Test installation outside fixture refused.'}}
+            if($script:Root -ne $script:AllowedTestRoot){throw 'Test installation outside fixture refused.'}
+            function script:Get-Process {return [pscustomobject]@{ProcessName='Wow'}}
             function script:Save-RemoteFile([string]$Url,[string]$Path,[long]$Size,[string]$Digest,[string]$Activity){if($Url -ne 'https://fixture.invalid/release.zip'){throw 'Unexpected test download.'};Show-ItemProgress $Activity 1 2;[IO.File]::Copy($script:FixtureZip,$Path)}
         } $addons $zip
         $p=New-AddonPlan 'Example' @('Example') 'github';$p.latest='1.2';$p.installed='1.0';$p.url='https://fixture.invalid/release.zip';$p.update=$true

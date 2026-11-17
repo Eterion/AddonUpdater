@@ -134,9 +134,8 @@ function Get-AddonPlans {
     Save-HashState
     return $result.ToArray()
 }
-function Assert-GameClosed { if(Get-Process -Name Wow,WowClassic,WowT,WowB -ErrorAction SilentlyContinue){throw 'Close World of Warcraft before installing updates.'} }
 function Install-AddonPlan($Plan) {
-    if($script:CheckOnly){throw 'Installation is disabled in check-only mode.'};Assert-GameClosed
+    if($script:CheckOnly){throw 'Installation is disabled in check-only mode.'}
     [IO.Directory]::CreateDirectory($script:Root) | Out-Null
     $workRoot=Join-Path $script:Data 'staging';$job=[DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,8);$work=Join-Path $workRoot $job;$stage=Join-Path $work 'ready';[IO.Directory]::CreateDirectory($stage) | Out-Null;$success=$false
     try{
@@ -155,7 +154,7 @@ function Install-AddonPlan($Plan) {
                 foreach($folder in $Plan.folders){if(-not(Test-Path -LiteralPath (Join-Path $unpacked $folder) -PathType Container)){throw "Release is missing $folder; source archives cannot be installed automatically."};[IO.Directory]::Move((Join-Path $unpacked $folder),(Join-Path $stage $folder))}
             }
         }
-        Show-ItemProgress 'Verifying staged files';Assert-StagedAddons $stage $Plan.folders $Plan.latest;Assert-GameClosed
+        Show-ItemProgress 'Verifying staged files';Assert-StagedAddons $stage $Plan.folders $Plan.latest
         $backup=Join-Path (Join-Path (Split-Path $script:Root -Parent) 'ForeverAddonUpdater-Backups') $job
         Show-ItemProgress 'Backing up and installing';Move-AddonFolders $script:Root $stage $Plan.folders $backup
         $success=$true
@@ -166,7 +165,6 @@ function Install-AddonPlan($Plan) {
     }
 }
 function Install-SelectedPlans([object[]]$Plans,[scriptblock]$Progress){
-    Assert-GameClosed
     $ordered=@($Plans | Sort-Object @{Expression={if($_.kind -eq 'spoken'){0}else{1}}})
     $script:InstallProgress=$Progress
     try{

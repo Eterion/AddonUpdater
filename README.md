@@ -8,7 +8,9 @@ Check and update your WoW Forever addons from a simple keyboard menu. Runs on Wi
 2. Double-click **UpdateAddons.cmd**.
 3. Choose your WoW installation. If it isn't listed, choose **Enter a custom path**.
 4. Available updates start checked. Use **Up/Down** to move and **Space** to uncheck any you want to skip.
-5. Close WoW, press **Enter**, and let the updates finish. The Status column shows progress for each selected addon.
+5. Press **Enter** and let the updates finish. The Status column shows progress for each selected addon.
+
+You can keep WoW open during installation. Once the updates finish, use `/reload` in WoW to load them. Restart WoW if an addon still shows its previous version or behaves unexpectedly.
 
 Press **Q** or **Esc** to exit a menu. Let an installation finish before closing the window.
 
